@@ -1,4 +1,4 @@
-# scripts/download_langgraph_docs.py
+# scripts/download_langchain_docs.py
 
 # Standard library imports
 # json: save each downloaded page as structured JSON
@@ -17,8 +17,8 @@ import requests
 from bs4 import BeautifulSoup
 
 
-# Folder where raw LangGraph pages will be saved
-OUT_DIR = Path("data/raw/langgraph")
+# Folder where raw langchain pages will be saved
+OUT_DIR = Path("data/raw/langchain")
 if not OUT_DIR.exists():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -41,9 +41,9 @@ def slugify(text: str) -> str:
     return text.strip("_")
 
 
-def get_langgraph_urls() -> list[str]:
+def get_langchain_urls() -> list[str]:
     """
-    Download llms.txt and keep only URLs that belong to LangGraph docs.
+    Download llms.txt and keep only URLs that belong to langchain docs.
 
     Why this function exists:
     We want URL discovery to be separate from page downloading.
@@ -57,9 +57,9 @@ def get_langgraph_urls() -> list[str]:
     # llms.txt is plain text, so we scan it line by line
     for line in response.text.splitlines():
         line = line.strip()
-
-        # Keep only actual URLs that point to LangGraph pages
-        if line.startswith("http") and "/langgraph/" in line:
+        line = line.split("(")[-1].split(")")[0]  # Handle lines like "langchain (https://docs.langchain.com/langchain/)"
+        # Keep only actual URLs that point to langchain pages
+        if line.startswith("http"):
             urls.append(line)
 
     # Remove duplicates and sort for stable output
@@ -107,13 +107,13 @@ def save_record(url: str, title: str, text: str):
     2. failures affect only one page,
     3. later we can merge everything into JSONL.
     """
-    # Build a stable ID from the part of the URL after /langgraph/
-    tail = url.split("/langgraph/")[-1] or "index"
+    # Build a stable ID from the part of the URL after /langchain/
+    tail = url.split("langchain.com/")[-1] or "index"
     doc_id = slugify(tail)
 
     record = {
         "doc_id": doc_id,
-        "source": "langgraph",
+        "source": "langchain",
         "url": url,
         "title": title,
         "text": text,
@@ -164,13 +164,13 @@ def save_record_fastapi(url: str, title: str, text: str):
 def main():
     """
     Main program flow:
-    1. Discover LangGraph URLs
+    1. Discover langchain URLs
     2. Download each page
     3. Extract text
     4. Save JSON
     """
-    urls = get_langgraph_urls()
-    print(f"Found {len(urls)} LangGraph URLs")
+    urls = get_langchain_urls()
+    print(f"Found {len(urls)} langchain URLs")
 
     for i, url in enumerate(urls, start=1):
         try:
