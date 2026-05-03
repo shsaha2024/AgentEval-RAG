@@ -32,10 +32,13 @@ import json
 from pathlib import Path
 
 from langchain_core.documents import Document
+import torch
 
 from packages.retrieval.embed import get_embeddings, EmbeddingConfig
 from packages.retrieval.vector_store import get_vector_store, PostgresConfig
 
+from math import ceil
+from tqdm.auto import tqdm
 
 def load_jsonl_documents(path: str | Path) -> list[Document]:
     """
@@ -81,6 +84,9 @@ def load_jsonl_documents(path: str | Path) -> list[Document]:
 
     return documents
 
+def batched(iterable, batch_size):
+    for i in range(0, len(iterable), batch_size):
+        yield iterable[i:i + batch_size]
 
 def main():
     """
@@ -100,8 +106,20 @@ def main():
     )
     parser.add_argument(
         "--embedding-model",
-        default="text-embedding-3-small",
+        default= "BAAI/bge-small-en-v1.5", # other options: "text-embedding-3-small", "sentence-transformers/all-MiniLM-L6-v2"
         help="Embedding model name to use.",
+    )
+    parser.add_argument(
+        "--device",
+        default="cuda" if torch.cuda.is_available() else "cpu",
+        choices=["cpu", "cuda"],
+        help="Device for local embedding inference.",
+    )
+    parser.add_argument(
+        "--batch_size",
+        default=32,
+        type = int,
+        help="Batch size for embedding computation.",
     )
     args = parser.parse_args()
 
@@ -110,25 +128,28 @@ def main():
 
     if not documents:
         raise ValueError("No documents found in the provided JSONL file.")
-
+    print(f"Loaded {len(documents)} documents from {args.input}.")
     # Create embeddings object.
     embeddings = get_embeddings(
-        EmbeddingConfig(model_name=args.embedding_model)
+        EmbeddingConfig(model_name=args.embedding_model, device = args.device, normalize_embeddings=True)
     )
-
+    print(f"Initialized embeddings with model '{args.embedding_model}'.")
     #Initialize PGVector-backed store.
     vector_store = get_vector_store(
         embeddings=embeddings,
         config=PostgresConfig(),
     )
-
+    print("Initialized PGVector store with provided database configuration.")
     # Add documents to Postgres.
     # PGVector computes embeddings and stores them together with metadata.
-    vector_store.add_documents(documents)
+    chunk = 100
+    batches = list(batched(documents, chunk))
+    for batch in tqdm(batches, total=len(batches), desc="Indexing documents"):
+        vector_store.add_documents(batch)
 
     print(
         f"Indexed {len(documents)} documents into collection "
-        f"'{PostgresConfig().collection_name}'."
+        # f"'{PostgresConfig().collection_name}'."
     )
 
 

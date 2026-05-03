@@ -17,11 +17,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_openai import OpenAIEmbeddings
-
-from dotenv import load_dotenv
-
-load_dotenv()
+import torch
+#If using OpenAI, make sure to set OPENAI_API_KEY in your environment.
+# from langchain_openai import OpenAIEmbeddings
+# from dotenv import load_dotenv, find_dotenv
+# load_dotenv(find_dotenv())
 
 @dataclass(frozen=True)
 class EmbeddingConfig:
@@ -34,8 +36,10 @@ class EmbeddingConfig:
     - batch size
     - timeout
     """
-    model_name: str = "text-embedding-3-small"
-
+    model_name: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+    device: str = os.getenv("EMBEDDING_DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
+    normalize_embeddings: bool = True
+    batch_size: int = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
 
 def get_embeddings(config: EmbeddingConfig | None = None):
     """
@@ -60,13 +64,26 @@ def get_embeddings(config: EmbeddingConfig | None = None):
     """
     config = config or EmbeddingConfig()
 
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-        raise ValueError(
-            "OPENAI_API_KEY is not set. Export it before running indexing."
-        )
-
-    return OpenAIEmbeddings(
-        model=config.model_name,
-        api_key=openai_api_key,
+    #if using OpenAI, ensure API key is set
+    # openai_api_key = os.getenv("OPENAI_API_KEY")
+    # if not openai_api_key:
+    #     raise ValueError(
+    #         "OPENAI_API_KEY is not set. Export it before running indexing."
+    #     )
+    # return OpenAIEmbeddings(
+    #     model=config.model_name,
+    #     api_key=openai_api_key,
+    # )
+    return HuggingFaceEmbeddings(
+        model_name=config.model_name,
+        model_kwargs={
+            "device": config.device,
+        },
+        encode_kwargs={
+            "normalize_embeddings": config.normalize_embeddings,
+            "batch_size": config.batch_size,
+        },
+        # Optional local cache directory:
+        # cache_folder=os.getenv("HF_HOME")
     )
+

@@ -20,18 +20,14 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-
+from pathlib import Path
+import re
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 from langchain_postgres import PGVector
-
 
 @dataclass(frozen=True)
 class PostgresConfig:
-    """
-    Typed config object for PostgreSQL connectivity.
-
-    Default values are local-development friendly.
-    """
     host: str = os.getenv("POSTGRES_HOST", "localhost")
     port: int = int(os.getenv("POSTGRES_PORT", "6024"))
     database: str = os.getenv("POSTGRES_DB", "langchain")
@@ -53,23 +49,27 @@ class PostgresConfig:
 
 
 def ensure_vector_extension(config: PostgresConfig | None = None) -> None:
-    """
-    Ensure the pgvector extension exists in the target database.
-
-    Why this matters:
-    - PostgreSQL does not automatically enable the extension in each database.
-    - The pgvector docs show that you must run:
-      CREATE EXTENSION IF NOT EXISTS vector;
-
-    This function runs that statement once before indexing/searching.
-    """
     config = config or PostgresConfig()
 
-    engine = create_engine(config.connection_string())
+    engine = create_engine(
+        config.connection_string(),
+        pool_pre_ping=True,
+    )
 
-    with engine.begin() as connection:
-        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+    except OperationalError as e:
+        raise RuntimeError(
+            "Could not connect to PostgreSQL.\n"
+            f"Tried: host={config.host}, port={config.port}, db={config.database}, user={config.user}\n"
+            "Check that:\n"
+            "1. PostgreSQL/pgvector container is running\n"
+            "2. The Docker port mapping matches your POSTGRES_PORT\n"
+            "3. Username/password/database are correct\n"
+            "4. You are using 127.0.0.1 instead of localhost if localhost causes issues\n"
+            f"Original error: {e}"
+        ) from e
 
 def get_vector_store(embeddings, config: PostgresConfig | None = None) -> PGVector:
     """
