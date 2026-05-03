@@ -99,3 +99,16 @@ def get_vector_store(embeddings, config: PostgresConfig | None = None) -> PGVect
         connection=config.connection_string(),
         use_jsonb=True,
     )
+
+# For accessing the saved db:
+# # Export
+# pg_dump -h localhost -p 6024 -U langchain -d langchain -F c -f langchain.backup
+
+# # Restore
+# createdb -h localhost -p 6024 -U langchain langchain_copy
+# pg_restore -h localhost -p 6024 -U langchain -d langchain_copy langchain.backup
+
+# pg_restore -l langchain.backup to see object names.
+
+# pg_restore -f backup.sql langchain.backup to inspect generated SQL.
+
