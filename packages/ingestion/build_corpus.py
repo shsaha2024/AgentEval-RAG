@@ -29,6 +29,8 @@ import yaml
 RAW_DIR = Path("data/raw")
 OUT_DIR = Path("data/processed")
 OUT_FILE = OUT_DIR / "chunks.jsonl"
+if OUT_FILE.exists():
+    OUT_FILE.unlink()
 
 # Only split on markdown headers.
 # You can reduce or expand the list depending on your corpus structure.
@@ -37,7 +39,6 @@ HEADERS_TO_SPLIT_ON = [
     ("##", "h2"),
     ("###", "h3"),
     ("####", "h4"),
-    ("#####", "h5"),
 ]
 config = yaml.safe_load(open("configs/chunking.yaml", 'r'))
 
@@ -238,7 +239,6 @@ def process_documents() -> List[Dict[str, Any]]:
                 "chunk_id": f"{doc['doc_id']}__{idx:05d}",
                 "doc_id": doc["doc_id"],
                 "source_path": doc["source_path"],
-                "record_index": doc["record_index"],
                 "title": doc["title"],
                 "url": doc["url"],
                 "chunk_index": idx,
@@ -246,7 +246,6 @@ def process_documents() -> List[Dict[str, Any]]:
                 "section_h2": section_path.get("h2"),
                 "section_h3": section_path.get("h3"),
                 "section_h4": section_path.get("h4"),
-                "section_h5": section_path.get("h5"),
                 "text": chunk_text,
                 "char_count": len(chunk_text),
             }

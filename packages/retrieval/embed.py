@@ -16,12 +16,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-import yaml
 
 from langchain_openai import OpenAIEmbeddings
-
-config = yaml.safe_load(open("configs/embedding.yaml", 'r'))
-
 
 @dataclass(frozen=True)
 class EmbeddingConfig:
