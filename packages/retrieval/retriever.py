@@ -87,7 +87,7 @@ class PGVectorRetriever:
                 Number of documents to return. Falls back to config default.
             filter:
                 Optional metadata filter. Keep this here because it is useful later
-                when you want source-specific retrieval (for example only FastAPI docs).
+                if need to do source-specific retrieval (for example only FastAPI docs).
 
         Returns:
             List[Document]
@@ -156,7 +156,7 @@ class PGVectorRetriever:
         """
         Nicely format a retrieved document for CLI display.
 
-        This keeps the search script simple and gives you a clean way to inspect
+        This keeps the search script simple and provides a clean way to inspect
         what is actually coming back from the vector store.
         """
         metadata = doc.metadata or {}
