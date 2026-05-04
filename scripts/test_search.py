@@ -56,7 +56,7 @@ def main():
         help="Number of top documents to return.",
     )
     parser.add_argument(
-        "--with-scores",
+        "--with_scores",
         action="store_true",
         help="Print similarity scores along with documents.",
     )
@@ -76,13 +76,14 @@ def main():
     # Build an optional metadata filter.
     # This is useful if you indexed multiple corpora into one collection
     # and want to restrict search to a specific source.
-    metadata_filter = args.filter
     if args.source == "fastapi":
-        metadata_filter = {"url": {"$like": args.source+".tiangolo.com"}}
+        metadata_filter = {"url": {"$like": "%"+args.source+".tiangolo.com"+"%"}}
     elif args.source == "langchain":
-        metadata_filter = {"url": {"$like": args.source+".com"}}
+        metadata_filter = {"url": {"$like": "%"+args.source+".com"+"%"}}
     elif args.source is not None:
         print(f"Warning: unrecognized source '{args.source}'. Source must be either 'fastapi' or 'langchain'. No metadata filter will be applied.")
+        metadata_filter = None
+    else:
         metadata_filter = None
 
     if args.k<=0:
