@@ -10,7 +10,7 @@ What this script does:
 Usage examples:
 python scripts/test_search.py --query "How do I test FastAPI endpoints?"
 python scripts/test_search.py --query "What is LangGraph used for?" --k 5 --with-scores
-python scripts/test_search.py --query "How do I test FastAPI endpoints?" --source fastapi-docs
+python scripts/test_search.py --query "How do I test FastAPI endpoints?" --source fastapi OR langchain
 
 Why this is useful:
 - Lets you verify the index was built correctly
@@ -63,21 +63,34 @@ def main():
     parser.add_argument(
         "--source",
         default=None,
-        help="Optional metadata filter: source=<value>.",
+        help="Optional metadata filter: source=<fastapi|langchain>.",
     )
     parser.add_argument(
         "--embedding-model",
-        default="text-embedding-3-small",
+        default="BAAI/bge-small-en-v1.5", # other options: "text-embedding-3-small", "sentence-transformers/all-MiniLM-L6-v2"
         help="Embedding model name used at query time.",
     )
+    
     args = parser.parse_args()
 
     # Build an optional metadata filter.
     # This is useful if you indexed multiple corpora into one collection
     # and want to restrict search to a specific source.
-    metadata_filter = None
-    if args.source:
-        metadata_filter = {"source": args.source}
+    metadata_filter = args.filter
+    if args.source == "fastapi":
+        metadata_filter = {"url": {"$like": args.source+".tiangolo.com"}}
+    elif args.source == "langchain":
+        metadata_filter = {"url": {"$like": args.source+".com"}}
+    elif args.source is not None:
+        print(f"Warning: unrecognized source '{args.source}'. Source must be either 'fastapi' or 'langchain'. No metadata filter will be applied.")
+        metadata_filter = None
+
+    if args.k<=0:
+        print(f"Warning: k must be a positive integer. Received k={args.k}. Falling back to default k=4.")
+        args.k = 4
+    elif args.k > 10:
+        print(f"Warning: k={args.k} may return too many results for clean CLI display. Consider using k<=10.")
+        args.k = 10
 
     # Instantiate the retrieval service.
     retriever = PGVectorRetriever(
