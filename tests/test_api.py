@@ -36,3 +36,37 @@ def test_query_similarity_with_scores():
     body = response.json()
     assert body["mode"] == "similarity_with_scores"
     assert body["hits"][0]["score"] is not None
+
+#negative test cases
+
+def test_query_missing_query_field():
+    response = client.post(
+        "/query",
+        json={
+            "k": 2,
+            "mode": "similarity"
+        },
+    )
+    assert response.status_code == 422
+
+def test_query_invalid_mode():
+    response = client.post(
+        "/query",
+        json={
+            "query": "test",
+            "k": 2,
+            "mode": "bad_mode"
+        },
+    )
+    assert response.status_code == 422
+
+def test_query_invalid_k():
+    response = client.post(
+        "/query",
+        json={
+            "query": "test",
+            "k": 0,
+            "mode": "similarity"
+        },
+    )
+    assert response.status_code == 422

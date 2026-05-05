@@ -29,7 +29,6 @@ app = FastAPI(
 # - Can keep internal document objects separate from public API contract.
 # ------------------------------------------------------------
 class SearchHit(BaseModel):
-    chunk_id: str = Field(..., description="Chunk ID")
     text: str = Field(..., description="Chunk text returned by the retriever")
     url: str | None = Field(default=None, description="Original source/document url.")
     score: float | None = Field(default=None, description="Similarity score if requested")
@@ -37,16 +36,16 @@ class SearchHit(BaseModel):
 
 def get_metadata(doc: dict[str, Any]) -> dict[str, Any]:
     metadata = {}
-    metadata["title"] = doc.get("metadata", {}).get("title", "")
-    metadata["chunk_index"] = doc.get("metadata", {}).get("chunk_index", 0)
+    metadata["title"] = doc.metadata.get("title", "")
+    metadata["chunk_index"] = doc.metadata.get("chunk_index", 0)
     metadata["Sections"] = []
-    if doc.get("metadata", {}).get("section_h1",None):
-        metadata["Sections"] = [doc.get("metadata", {}).get("section_h1", "")]
+    if doc.metadata.get("section_h1",None):
+        metadata["Sections"] = [doc.metadata.get("section_h1", "")]
         curr = 1
         while curr<5:
             curr+=1
-            if doc.get("metadata", {}).get(f"section_h{curr}", None):
-                metadata["Sections"].append(doc.get("metadata", {}).get(f"section_h{curr}", ""))
+            if doc.metadata.get(f"section_h{curr}", None):
+                metadata["Sections"].append(doc.metadata.get(f"section_h{curr}", ""))
             else:
                 break
     return metadata
@@ -99,14 +98,14 @@ class RetrieverService:
         retrieval_config=RetrievalConfig(k=k),
     )
         if source=="fastapi":
-            self.filter = {"url": {"$like": "%"+self.source+".tiangolo.com"+"%"}}
+            self.source = {"url": {"$like": "%"+self.source+".tiangolo.com"+"%"}}
         elif source=="langchain":
-            self.filter = {"url": {"$like": "%"+self.source+".com"+"%"}}
+            self.source = {"url": {"$like": "%"+self.source+".com"+"%"}}
         elif source is not None:
+            self.source = None
             print(f"Warning: unrecognized source '{self.source}'. Source must be either 'fastapi' or 'langchain'. No metadata filter will be applied.")
-            self.filter = None
         else:
-            self.filter = None
+            self.source = None
 
     def similarity_search(self):
         """
@@ -116,7 +115,7 @@ class RetrieverService:
         results = self.retriever.similarity_search(
             query=self.query,
             k=self.k,
-            filter=self.filter,
+            filter=self.source,
         )
         return results
               
@@ -139,9 +138,9 @@ class RetrieverService:
         results = self.retriever.similarity_search_with_score(
             query=self.query,
             k=self.k,
-            filter=self.filter,
+            filter=self.source,
         )
-        for ind, (doc,score) in results:
+        for ind, (doc,score) in enumerate(results):
             results[ind] = (doc, 1-score)  # convert distance to similarity for better interpretability       
         return results
         # docs_with_scores = [
@@ -183,17 +182,12 @@ def query_documents(payload: QueryRequest) -> QueryResponse:
     service = RetrieverService(query = payload.query, k=payload.k, source=payload.source)
     try:
         if payload.mode == "similarity":
-            raw_hits = service.retriever.similarity_search(
-                query=payload.query,
-                k=payload.k,
-                source=payload.source,
-            )
+            raw_hits = service.similarity_search()
 
             hits = [
                 SearchHit(
-                    chunk_id=doc.get("metadata", {}).get("chunk_id",""),
-                    text=doc.get("page_content", ""),
-                    url=doc.get("metadata", {}).get("url"),
+                    text=doc.page_content,
+                    url=doc.metadata.get("url"),
                     score=None,
                     metadata=get_metadata(doc), #Keys: Sections, title, chunk_index
                 )
@@ -201,17 +195,12 @@ def query_documents(payload: QueryRequest) -> QueryResponse:
             ]
 
         elif payload.mode == "similarity_with_scores":
-            raw_hits = service.retriever.similarity_search_with_scores(
-                query=payload.query,
-                k=payload.k,
-                source=payload.source,
-            )
+            raw_hits = service.similarity_search_with_scores()
 
             hits = [
                 SearchHit(
-                    chunk_id=doc.get("metadata", {}).get("chunk_id",""),
-                    text=doc.get("page_content", ""),
-                    url=doc.get("metadata", {}).get("url"),
+                    text=doc.page_content,
+                    url=doc.metadata.get("url"),
                     score=score,
                     metadata=get_metadata(doc), #Keys: Sections, title, chunk_index
                 )
