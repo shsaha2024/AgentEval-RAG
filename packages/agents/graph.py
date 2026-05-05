@@ -4,13 +4,18 @@ Convert the QA pipeline into a LangGraph workflow.
 Assumptions:
 - You already have retrieval code from steps 4-5.
 - You already have a FastAPI service from step 8.
-- You have some LLM client or wrapper available.
-
 This file focuses on orchestration only.
 """
 
 from typing import TypedDict, Literal, List, Dict, Any
 from langgraph.graph import StateGraph, START, END
+from google import genai 
+from dotenv import load_dotenv
+import os
+load_dotenv()  # Load environment variables from .env file
+client = genai.Client()
+api_key = os.getenv("GEMINI_API_KEY")
+#sample usage: client.models.generate_content( model="gemini-3.1-flash-lite-preview", contents="Explain how AI works in a few words")
 
 # -------------------------------------------------------------------
 # 1. Define the shared graph state
