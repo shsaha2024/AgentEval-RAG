@@ -209,9 +209,9 @@ def query_documents(payload: QueryRequest) -> QueryResponse:
 
             hits = [
                 SearchHit(
-                    chunk_id=doc["chunk_id"],
-                    text=doc["text"],
-                    url=doc.get("url"),
+                    chunk_id=doc.get("metadata", {}).get("chunk_id",""),
+                    text=doc.get("page_content", ""),
+                    url=doc.get("metadata", {}).get("url"),
                     score=score,
                     metadata=get_metadata(doc), #Keys: Sections, title, chunk_index
                 )
