@@ -1,10 +1,7 @@
 """
 Convert the QA pipeline into a LangGraph workflow.
 
-Assumptions:
-- You already have retrieval code from steps 4-5.
-- You already have a FastAPI service from step 8.
-This file focuses on orchestration only.
+This file focuses on orchestration.
 """
 
 from typing import TypedDict, Literal, List, Dict, Any
@@ -13,8 +10,10 @@ from google import genai
 from dotenv import load_dotenv
 import os
 load_dotenv()  # Load environment variables from .env file
-client = genai.Client()
+
+
 api_key = os.getenv("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key)
 #sample usage: client.models.generate_content( model="gemini-3.1-flash-lite-preview", contents="Explain how AI works in a few words")
 
 # -------------------------------------------------------------------
@@ -25,7 +24,6 @@ api_key = os.getenv("GEMINI_API_KEY")
 # only the pieces it wants to update.
 #
 # This follows LangGraph's model: State -> Partial<State>.
-# [web:52][web:46]
 
 class RAGState(TypedDict, total=False):
     question: str
