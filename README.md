@@ -62,35 +62,28 @@ That design choice has a few benefits:
 .
 ├── apps/
 │   └── api/
-│       ├── main.py
-│       └── ...
+│       └── main.py
 ├── packages/
 │   ├── ingestion/
-│   │   ├── loaders.py
-│   │   ├── chunking.py
-│   │   └── ...
+│   │   └── buikd_corpus.py   
 │   ├── retrieval/
-│   │   ├── service.py
+│   │   ├── embed.py
 │   │   ├── vector_store.py
-│   │   └── ...
-│   └── common/
-│       └── ...
+|   |   ├── retriever.py
+|   |   ├── vector_store.py
+|   |   └── test_search.py
 ├── configs/
-│   ├── chunking.yaml
-│   ├── retrieval.yaml
-│   └── ...
+│   └── chunking.yaml
 ├── scripts/
 │   ├── download_docs.py
-│   ├── build_index.py
-│   └── ...
+│   └──  build_index.py
 ├── tests/
 │   ├── test_search.py
-│   ├── test_api.py
-│   └── ...
+│   └── test_api.py
 ├── data/
 │   ├── raw/
 │   ├── processed/
-│   └── ...
+│   └── benchmark/
 └── README.md
 ```
 
