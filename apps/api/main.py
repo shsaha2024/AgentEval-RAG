@@ -29,7 +29,7 @@ app = FastAPI(
 # - Can keep internal document objects separate from public API contract.
 # ------------------------------------------------------------
 class SearchHit(BaseModel):
-    chunk_id: str = Field(..., description="Unique identifier for the retrieved chunk")
+    chunk_id: float = Field(..., description="Chunk Index")
     text: str = Field(..., description="Chunk text returned by the retriever")
     url: str | None = Field(default=None, description="Original source/document url.")
     score: float | None = Field(default=None, description="Similarity score if requested")
@@ -70,17 +70,12 @@ class QueryResponse(BaseModel):
     hits: list[SearchHit]
 
 # ------------------------------------------------------------
-# This is a placeholder adapter around existing search code.
-#
-# In your project, replace the inside of this class with calls to
-# the exact search utility you already use in test_search.
-#
 # The API layer should NOT know retrieval details.
 # Its job is only to validate requests, call a retriever, and
 # shape the response.
 # ------------------------------------------------------------
 class RetrieverService:
-    def __init__(self, query: str, k:int, model :str = "BAAI/bge-small-en-v1.5", source: str | None = None):
+    def __init__(self, query: str, k:int, model: str = "BAAI/bge-small-en-v1.5", source: str | None = None):
         self.query = query
         self.k = k
         self.retriever = PGVectorRetriever(
@@ -117,13 +112,7 @@ class RetrieverService:
         #         "text": "FastAPI automatically validates request bodies using Pydantic models.",
         #         "source": source or "fastapi_docs",
         #         "metadata": {"section": "request-body"}
-        #     },
-        #     {
-        #         "chunk_id": "chunk_002",
-        #         "text": "Response models define the output schema and improve API safety.",
-        #         "source": source or "fastapi_docs",
-        #         "metadata": {"section": "response-model"}
-        #     },
+        #     }
         # ]
 
     def similarity_search_with_scores(self):
@@ -137,6 +126,8 @@ class RetrieverService:
             k=self.k,
             filter=self.filter,
         )
+        for ind, (doc,score) in results:
+            results[ind] = (doc, 1-score)  # convert distance to similarity for better interpretability       
         return results
         # docs_with_scores = [
         #     (
@@ -147,18 +138,9 @@ class RetrieverService:
         #             "metadata": {"section": "request-body"}
         #         },
         #         0.9123
-        #     ),
-        #     (
-        #         {
-        #             "chunk_id": "chunk_002",
-        #             "text": "Response models define the output schema and improve API safety.",
-        #             "source": source or "fastapi_docs",
-        #             "metadata": {"section": "response-model"}
-        #         },
-        #         0.8744
-        #     ),
+        #     )
         # ]
-        # return docs_with_scores[:k]
+
 
 # ------------------------------------------------------------
 # Simple health endpoint.
@@ -183,10 +165,10 @@ def health_check():
 # ------------------------------------------------------------
 @app.post("/query", response_model=QueryResponse)
 def query_documents(payload: QueryRequest) -> QueryResponse:
-    retriever = RetrieverService(query = payload.query, k=payload.k, source=payload.source)
+    service = RetrieverService(query = payload.query, k=payload.k, source=payload.source)
     try:
         if payload.mode == "similarity":
-            raw_hits = retriever.similarity_search(
+            raw_hits = service.retriever.similarity_search(
                 query=payload.query,
                 k=payload.k,
                 source=payload.source,
@@ -204,7 +186,7 @@ def query_documents(payload: QueryRequest) -> QueryResponse:
             ]
 
         elif payload.mode == "similarity_with_scores":
-            raw_hits = retriever.similarity_search_with_scores(
+            raw_hits = service.retriever.similarity_search_with_scores(
                 query=payload.query,
                 k=payload.k,
                 source=payload.source,
