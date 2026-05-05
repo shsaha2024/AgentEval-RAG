@@ -1,6 +1,9 @@
 from typing import Any, Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from packages.retrieval.retriever import PGVectorRetriever, RetrievalConfig
+from packages.retrieval.vector_store import PostgresConfig
+from packages.retrieval.embed import EmbeddingConfig
 
 # ------------------------------------------------------------
 # Goal:
@@ -23,13 +26,12 @@ app = FastAPI(
 # Why define this?
 # - FastAPI will validate the output shape.
 # - Swagger docs will show exactly what users get back.
-# - You can keep internal document objects separate from
-#   your public API contract.
+# - Can keep internal document objects separate from public API contract.
 # ------------------------------------------------------------
 class SearchHit(BaseModel):
     chunk_id: str = Field(..., description="Unique identifier for the retrieved chunk")
     text: str = Field(..., description="Chunk text returned by the retriever")
-    source: str | None = Field(default=None, description="Original source/document name")
+    url: str | None = Field(default=None, description="Original source/document url.")
     score: float | None = Field(default=None, description="Similarity score if requested")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Extra metadata")
 
@@ -43,14 +45,14 @@ class SearchHit(BaseModel):
 # ------------------------------------------------------------
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, description="User search query")
-    k: int = Field(default=5, ge=1, le=20, description="Number of results to return")
+    k: int = Field(default=4, ge=1, le=10, description="Number of results to return")
     mode: Literal["similarity", "similarity_with_scores"] = Field(
         default="similarity",
         description="Retrieval mode"
     )
     source: str | None = Field(
         default=None,
-        description="Optional source filter, e.g. restrict search to one document"
+        description="Optional source filter, e.g. restrict search to one document class."
     )
 
 # ------------------------------------------------------------
@@ -68,7 +70,7 @@ class QueryResponse(BaseModel):
     hits: list[SearchHit]
 
 # ------------------------------------------------------------
-# This is a placeholder adapter around your existing search code.
+# This is a placeholder adapter around existing search code.
 #
 # In your project, replace the inside of this class with calls to
 # the exact search utility you already use in test_search.
@@ -78,69 +80,92 @@ class QueryResponse(BaseModel):
 # shape the response.
 # ------------------------------------------------------------
 class RetrieverService:
-    def similarity_search(self, query: str, k: int, source: str | None = None):
-        """
-        Replace this stub with your current similarity search logic.
+    def __init__(self, query: str, k:int, model :str = "BAAI/bge-small-en-v1.5", source: str | None = None):
+        self.query = query
+        self.k = k
+        self.retriever = PGVectorRetriever(
+        embedding_config=EmbeddingConfig(model_name=model),
+        postgres_config=PostgresConfig(),
+        retrieval_config=RetrievalConfig(k=k),
+    )
+        if source=="fastapi":
+            self.filter = {"url": {"$like": "%"+self.source+".tiangolo.com"+"%"}}
+        elif source=="langchain":
+            self.filter = {"url": {"$like": "%"+self.source+".com"+"%"}}
+        elif source is not None:
+            print(f"Warning: unrecognized source '{self.source}'. Source must be either 'fastapi' or 'langchain'. No metadata filter will be applied.")
+            self.filter = None
+        else:
+            self.filter = None
 
+    def similarity_search(self):
+        """
         Expected return:
             list of document-like objects or dicts
         """
+        results = self.retriever.similarity_search(
+            query=self.query,
+            k=self.k,
+            filter=self.filter,
+        )
+        return results
+              
         # Example mocked result format
-        docs = [
-            {
-                "chunk_id": "chunk_001",
-                "text": "FastAPI automatically validates request bodies using Pydantic models.",
-                "source": source or "fastapi_docs",
-                "metadata": {"section": "request-body"}
-            },
-            {
-                "chunk_id": "chunk_002",
-                "text": "Response models define the output schema and improve API safety.",
-                "source": source or "fastapi_docs",
-                "metadata": {"section": "response-model"}
-            },
-        ]
-        return docs[:k]
+        # docs = [
+        #     {
+        #         "chunk_id": "chunk_001",
+        #         "text": "FastAPI automatically validates request bodies using Pydantic models.",
+        #         "source": source or "fastapi_docs",
+        #         "metadata": {"section": "request-body"}
+        #     },
+        #     {
+        #         "chunk_id": "chunk_002",
+        #         "text": "Response models define the output schema and improve API safety.",
+        #         "source": source or "fastapi_docs",
+        #         "metadata": {"section": "response-model"}
+        #     },
+        # ]
 
-    def similarity_search_with_scores(self, query: str, k: int, source: str | None = None):
+    def similarity_search_with_scores(self):
         """
-        Replace this stub with your current search-with-scores logic.
-
         Expected return:
             list of tuples like (doc, score)
             or another format that you normalize below.
         """
-        docs_with_scores = [
-            (
-                {
-                    "chunk_id": "chunk_001",
-                    "text": "FastAPI automatically validates request bodies using Pydantic models.",
-                    "source": source or "fastapi_docs",
-                    "metadata": {"section": "request-body"}
-                },
-                0.9123
-            ),
-            (
-                {
-                    "chunk_id": "chunk_002",
-                    "text": "Response models define the output schema and improve API safety.",
-                    "source": source or "fastapi_docs",
-                    "metadata": {"section": "response-model"}
-                },
-                0.8744
-            ),
-        ]
-        return docs_with_scores[:k]
-
-
-retriever = RetrieverService()
+        results = self.retriever.similarity_search_with_score(
+            query=self.query,
+            k=self.k,
+            filter=self.filter,
+        )
+        return results
+        # docs_with_scores = [
+        #     (
+        #         {
+        #             "chunk_id": "chunk_001",
+        #             "text": "FastAPI automatically validates request bodies using Pydantic models.",
+        #             "source": source or "fastapi_docs",
+        #             "metadata": {"section": "request-body"}
+        #         },
+        #         0.9123
+        #     ),
+        #     (
+        #         {
+        #             "chunk_id": "chunk_002",
+        #             "text": "Response models define the output schema and improve API safety.",
+        #             "source": source or "fastapi_docs",
+        #             "metadata": {"section": "response-model"}
+        #         },
+        #         0.8744
+        #     ),
+        # ]
+        # return docs_with_scores[:k]
 
 # ------------------------------------------------------------
 # Simple health endpoint.
 #
 # Why include this now?
 # - Useful for deployment and Docker later.
-# - Lets you verify the app is alive without testing retrieval.
+# - Verifies the app is alive without testing retrieval.
 # - Standard production API practice.
 # ------------------------------------------------------------
 @app.get("/health")
@@ -158,6 +183,7 @@ def health_check():
 # ------------------------------------------------------------
 @app.post("/query", response_model=QueryResponse)
 def query_documents(payload: QueryRequest) -> QueryResponse:
+    retriever = RetrieverService(query = payload.query, k=payload.k, source=payload.source)
     try:
         if payload.mode == "similarity":
             raw_hits = retriever.similarity_search(
