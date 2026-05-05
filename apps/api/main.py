@@ -29,12 +29,27 @@ app = FastAPI(
 # - Can keep internal document objects separate from public API contract.
 # ------------------------------------------------------------
 class SearchHit(BaseModel):
-    chunk_id: float = Field(..., description="Chunk Index")
+    chunk_id: str = Field(..., description="Chunk ID")
     text: str = Field(..., description="Chunk text returned by the retriever")
     url: str | None = Field(default=None, description="Original source/document url.")
     score: float | None = Field(default=None, description="Similarity score if requested")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="Extra metadata")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Extra metadata") #Keys: Sections, title, chunk_index
 
+def get_metadata(doc: dict[str, Any]) -> dict[str, Any]:
+    metadata = {}
+    metadata["title"] = doc.get("metadata", {}).get("title", "")
+    metadata["chunk_index"] = doc.get("metadata", {}).get("chunk_index", 0)
+    metadata["Sections"] = []
+    if doc.get("metadata", {}).get("section_h1",None):
+        metadata["Sections"] = [doc.get("metadata", {}).get("section_h1", "")]
+        curr = 1
+        while curr<5:
+            curr+=1
+            if doc.get("metadata", {}).get(f"section_h{curr}", None):
+                metadata["Sections"].append(doc.get("metadata", {}).get(f"section_h{curr}", ""))
+            else:
+                break
+    return metadata
 # ------------------------------------------------------------
 # Request model for POST /query
 #
@@ -52,7 +67,7 @@ class QueryRequest(BaseModel):
     )
     source: str | None = Field(
         default=None,
-        description="Optional source filter, e.g. restrict search to one document class."
+        description="Optional source filter, e.g. restrict search to one document class (fastapi or langchain)."
     )
 
 # ------------------------------------------------------------
@@ -176,11 +191,11 @@ def query_documents(payload: QueryRequest) -> QueryResponse:
 
             hits = [
                 SearchHit(
-                    chunk_id=doc["chunk_id"],
-                    text=doc["text"],
-                    source=doc.get("source"),
+                    chunk_id=doc.get("metadata", {}).get("chunk_id",""),
+                    text=doc.get("page_content", ""),
+                    url=doc.get("metadata", {}).get("url"),
                     score=None,
-                    metadata=doc.get("metadata", {}),
+                    metadata=get_metadata(doc), #Keys: Sections, title, chunk_index
                 )
                 for doc in raw_hits
             ]
@@ -196,9 +211,9 @@ def query_documents(payload: QueryRequest) -> QueryResponse:
                 SearchHit(
                     chunk_id=doc["chunk_id"],
                     text=doc["text"],
-                    source=doc.get("source"),
+                    url=doc.get("url"),
                     score=score,
-                    metadata=doc.get("metadata", {}),
+                    metadata=get_metadata(doc), #Keys: Sections, title, chunk_index
                 )
                 for doc, score in raw_hits
             ]
