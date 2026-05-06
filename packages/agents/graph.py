@@ -4,6 +4,7 @@ Convert the QA pipeline into a LangGraph workflow.
 This file focuses on orchestration.
 """
 
+from time import time
 from typing import TypedDict, Literal, List, Dict, Any
 from langgraph.graph import StateGraph, START, END
 from google import genai 
@@ -21,6 +22,7 @@ config = yaml.safe_load(open("configs/agent.yaml", 'r'))
 
 api_key = os.getenv("GEMINI_API_KEY") #extracting api key from .env file, make sure to set it before running the code
 client = genai.Client(api_key=api_key)
+backup_model = config.get("backup_model", "gemini-2.5-flash-lite")  # Optional backup model in case the primary fails
 model = config.get("model", "gemini-2.5-flash")  # Default to "gemini-2.5-flash" if not specified
 #sample usage: client.models.generate_content( model="gemini-2.5-flash", contents="Explain how AI works in a few words")
 
@@ -43,6 +45,7 @@ class RAGState(TypedDict, total=False):
     citations: List[str]
     final_answer: str
     needs_rerank: bool
+    original_question: str
 
 # -------------------------------------------------------------------
 # Plug-in interfaces to existing code
@@ -61,7 +64,11 @@ def classify_query(question: str) -> str:
     """
     prompt = f"Classify the following question as one of the labels in the array ['factual', 'multi_hop', 'summary'] by responding with only the chosen label and nothing else:\n\
           Question: {question}"
-    response = client.models.generate_content(model=model, contents=prompt)
+    try:
+        response = client.models.generate_content(model=model, contents=prompt)
+    except Exception as e:
+        print(f"Error generating content: {e}")
+        response = client.models.generate_content(model=backup_model, contents=prompt)
     category = response.text.strip()
     if category not in {"factual", "multi_hop", "summary"}:
         print(f"Warning: unrecognized query type '{category}'. Defaulting to 'factual'.")
@@ -105,16 +112,16 @@ def dense_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
         )
     response = []
     sections = []
-    if doc.metadata.get("section_h1",None):
-        sections = [doc.metadata.get("section_h1", "")]
-        curr = 1
-        while curr<5:
-            curr+=1
-            if doc.metadata.get(f"section_h{curr}", None):
-                sections.append(doc.metadata.get(f"section_h{curr}", ""))
-            else:
-                break
     for doc, score in (results):
+        if doc.metadata.get("section_h1",None):
+            sections = [doc.metadata.get("section_h1", "")]
+            curr = 1
+            while curr<5:
+                curr+=1
+                if doc.metadata.get(f"section_h{curr}", None):
+                    sections.append(doc.metadata.get(f"section_h{curr}", ""))
+                else:
+                    break
         response.append({
             "chunk_id": doc.metadata.get("chunk_index",0),
             "sections": sections,
@@ -159,7 +166,11 @@ def generate_answer(question: str, docs: List[Dict[str, Any]]) -> str:
     joined_context = "\n\n".join(
         f"[{i+1}, with {doc['sections']} as Section co-ordinate,] {doc['text']}" for i, doc in enumerate(docs)
     )
-    response = client.models.generate_content(model=model, contents=question+joined_context)
+    try:
+        response = client.models.generate_content(model=model, contents=question+joined_context)
+    except Exception as e:
+        print(f"Error generating content: {e}")
+        response = client.models.generate_content(model=backup_model, contents=question+joined_context)
     return (
         f"Grounded answer based on retrieved evidence:\n{joined_context}\n\n"
         f"For the question: {question}\n\n"
@@ -188,6 +199,7 @@ def classify_node(state: RAGState) -> Dict[str, Any]:
     """
     question = state["question"]
     query_type = classify_query(question)
+    print("Classified query type:", query_type)
     return {"query_type": query_type}
 
 
@@ -197,6 +209,7 @@ def retrieval_mode_node(state: RAGState) -> Dict[str, Any]:
     """
     mode = choose_retrieval_mode(state["query_type"])
     needs_rerank = mode == "hybrid"
+    print("Chosen retrieval mode:", mode, "Needs rerank?", needs_rerank)
     return {"retrieval_mode": mode, "needs_rerank": needs_rerank}
 
 
@@ -208,19 +221,27 @@ def retrieve_node(state: RAGState) -> Dict[str, Any]:
     mode = state["retrieval_mode"]
 
     if mode == "hybrid":
-        docs = hybrid_retrieve(question, k=config.get("num_docs", 4))
+        docs = hybrid_retrieve(question, k=config.get("num_docs", config.get("num_docs", 4)))
     else:
-        docs = dense_retrieve(question, k=config.get("num_docs", 4))    
-
+        docs = dense_retrieve(question, k=config.get("num_docs", config.get("num_docs", 4)))    
+    print(f"Retrieved {len(docs)} documents using {mode} retrieval.")
     return {"retrieved_docs": docs}
 
 
-def rerank_node(state: RAGState) -> Dict[str, Any]:
+def add_context_node(state: RAGState) -> Dict[str, Any]:
+    original_question = state["question"]
+    retrieved = state.get("retrieved_docs", [])
+    context_text = "\n\n".join(retrieved[0]["text"]) #add more context to the query
+    return {"question": original_question + "\n\nContext:\n" + context_text, "original_question": original_question} #update the question in the state to include retrieved context before retrieval
+
+
+def rerank_node(state: RAGState) -> Dict[str, Any]: # takes addtional context, retrieves docs and reranks them before passing to generation node
     """
     Optional reranking step.
     """
-    docs = state["retrieved_docs"]
-    reranked = simple_rerank(state["question"], docs)
+    docs = dense_retrieve(state["question"], k=config.get("num_docs", 4)*2) # retrieve more docs for reranking
+    reranked = simple_rerank(state["question"], docs)[-config.get("num_docs", 4):][::-1] # then cut back down to desired number of docs after reranking
+    print("Reranked documents.")
     return {"reranked_docs": reranked}
 
 
@@ -229,10 +250,11 @@ def generate_node(state: RAGState) -> Dict[str, Any]:
     Draft the answer from the best available evidence.
     If reranked docs exist, use them; otherwise use retrieved docs.
     """
-    question = state["question"]
+    question = state.get("original_question","") or state["question"]
     docs = state.get("reranked_docs") or state.get("retrieved_docs", [])
     answer = generate_answer(question, docs)
     citations = extract_citations(docs)
+    print("Generated answer and extracted citations.")
     return {"draft_answer": answer, "citations": citations}
 
 
@@ -242,7 +264,9 @@ def finalize_node(state: RAGState) -> Dict[str, Any]:
     In later steps, can add groundedness checks, formatting,
     confidence notes, or a response schema here.
     """
-    return   # For now, just pass everything through without changes
+    final_answer = state.get("draft_answer","Nothing generated.")
+    print("Finalizing answer.")
+    return  {"final_answer":final_answer, "citations": state.get("citations", [])} # For now, just pass everything through without changes
 
 
 # -------------------------------------------------------------------
@@ -252,26 +276,14 @@ def finalize_node(state: RAGState) -> Dict[str, Any]:
 # depending on the current state. This is what makes the workflow
 # "agentic" rather than a fixed sequence.
 
-def route_after_retrieval_mode(state: RAGState) -> Literal["retrieve_node"]:
+def route_after_retrieve_node(state: RAGState) -> Literal["generate_node","add_context_node"]:
     """
     This function exists mainly to make the routing explicit.
     Can later expand this to choose different retriever nodes.
     """
-    # original_question = state["question"]
-    # retrieved = state.get("retrieved_docs", [])
-    # {"question" = original_question + "\n\n".join(retrieved[0]["text"])} #add more context to the query
-    # retrieve_node(state)
-    # {"question" = original_question}
-
-def route_after_retrieve(state: RAGState) -> Literal["rerank_node", "generate_node"]:
-    """
-    Decide whether to rerank or go directly to generation.
-    """
-    if state.get("needs_rerank", False):
-        rerank_node(state)  # perform reranking in-place to update state
-    else:
-        generate_node(state) # generate directly without reranking
-
+    if state["retrieval_mode"] == "hybrid":
+        return "add_context_node"  # a future node that adds retrieved context to the question before retrieval
+    return "generate_node"  
 
 # -------------------------------------------------------------------
 # Building the graph
@@ -281,8 +293,8 @@ def route_after_retrieve(state: RAGState) -> Literal["rerank_node", "generate_no
 #   -> classify_node
 #   -> retrieval_mode_node
 #   -> retrieve_node
-#   -> (rerank_node or generate_node)
-#   -> generate_node
+#   -> rerank_node or generate_node
+#   |   |-> retrieve_node
 #   -> finalize_node
 #   -> END
 
@@ -297,33 +309,25 @@ def build_rag_graph():
     builder.add_node("rerank_node", rerank_node)
     builder.add_node("generate_node", generate_node)
     builder.add_node("finalize_node", finalize_node)
+    builder.add_node("add_context_node", add_context_node)
 
     # Fixed edges
     builder.add_edge(START, "classify_node")
     builder.add_edge("classify_node", "retrieval_mode_node")
+    builder.add_edge("retrieval_mode_node", "retrieve_node")  
 
-    # Explicit routing after choosing retrieval mode
-    builder.add_conditional_edges(
-        "retrieval_mode_node",
-        route_after_retrieval_mode,
-        {
-            "retrieve_node": "retrieve_node",
-        },
-    )
-
-    # Branch after retrieval
+    # Explicit routing after retrieval 
     builder.add_conditional_edges(
         "retrieve_node",
-        route_after_retrieve,
+        route_after_retrieve_node,
         {
-            "rerank_node": "rerank_node",
+            "add_context_node":"add_context_node", # for hybrid, add a context-building step before retrieval
             "generate_node": "generate_node",
         },
     )
 
-    # If reranking happens, then generate
+    builder.add_edge("add_context_node", "rerank_node")  
     builder.add_edge("rerank_node", "generate_node")
-
     # Finalize and stop
     builder.add_edge("generate_node", "finalize_node")
     builder.add_edge("finalize_node", END)
@@ -340,13 +344,15 @@ def build_rag_graph():
 
 if __name__ == "__main__":
     graph = build_rag_graph()
-
+    print(time())
     result = graph.invoke(
         {
-            "question": "Compare dense retrieval and hybrid retrieval for technical question answering."
+            "question": "Explain the fundamental commands of stategraph in langgraph and how it relates to broader agentic AI design patterns?"
         }
     )
 
     print("\nFINAL STATE:\n")
     for key, value in result.items():
-        print(f"{key}: {value}\n")
+        if key in ["citations", "final_answer"]:
+            print(f"{key}: {value}\n")
+    print(time())
