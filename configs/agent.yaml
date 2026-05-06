@@ -1,3 +1,5 @@
 model: "gemini-2.5-flash"
 
 reranker: "BAAI/bge-reranker-large"
+
+num_docs: 4

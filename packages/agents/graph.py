@@ -104,9 +104,20 @@ def dense_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
             filter=None
         )
     response = []
+    sections = []
+    if doc.metadata.get("section_h1",None):
+        sections = [doc.metadata.get("section_h1", "")]
+        curr = 1
+        while curr<5:
+            curr+=1
+            if doc.metadata.get(f"section_h{curr}", None):
+                sections.append(doc.metadata.get(f"section_h{curr}", ""))
+            else:
+                break
     for doc, score in (results):
         response.append({
             "chunk_id": doc.metadata.get("chunk_index",0),
+            "sections": sections,
             "text": doc.page_content,
             "source": doc.metadata.get("url",""),
             "score": 1-score,  # convert distance to similarity for better interpretability
@@ -131,7 +142,7 @@ def simple_rerank(query: str, docs: List[Dict[str, Any]]) -> List[Dict[str, Any]
     pairs = [(query, doc["text"]) for doc in docs]
     scores = model.predict(pairs)
     reranked_results = sorted(
-    zip(docs, scores), key=lambda x: x[1], reverse=True
+    zip(docs, scores), key=lambda x: x[1], reverse=False # making it increasing order of relevance for LLM to rerank later, since LLMs generally prefer to see less relevant info first and then more relevant info
 )
     return [doc for doc, score in reranked_results]
 
@@ -146,12 +157,13 @@ def generate_answer(question: str, docs: List[Dict[str, Any]]) -> str:
     - instructions to cite sources
     """
     joined_context = "\n\n".join(
-        f"[{i+1}] {doc['text']}" for i, doc in enumerate(docs)
+        f"[{i+1}, with {doc['sections']} as Section co-ordinate,] {doc['text']}" for i, doc in enumerate(docs)
     )
+    response = client.models.generate_content(model=model, contents=question+joined_context)
     return (
-        f"Question: {question}\n\n"
         f"Grounded answer based on retrieved evidence:\n{joined_context}\n\n"
-        f"Synthesized response: This is a placeholder answer generated from the retrieved context."
+        f"For the question: {question}\n\n"
+        f"{response.text}."
     )
 
 
@@ -159,18 +171,15 @@ def extract_citations(docs: List[Dict[str, Any]]) -> List[str]:
     """
     Pull source URLs or source ids from the documents used.
     """
-    return [doc["source"] for doc in docs]
+    return [doc["source"] for doc in docs[::-1]] # reverse order to match answer generation
 
 
 # -------------------------------------------------------------------
-# 3. Define LangGraph nodes
+# Define LangGraph nodes
 # -------------------------------------------------------------------
 # Each node:
 # - reads the current state
 # - returns a partial update dictionary
-#
-# This is the core LangGraph style described in the docs.
-# [web:46][web:52]
 
 def classify_node(state: RAGState) -> Dict[str, Any]:
     """
@@ -188,10 +197,7 @@ def retrieval_mode_node(state: RAGState) -> Dict[str, Any]:
     """
     mode = choose_retrieval_mode(state["query_type"])
     needs_rerank = mode == "hybrid"
-    return {
-        "retrieval_mode": mode,
-        "needs_rerank": needs_rerank,
-    }
+    return {"retrieval_mode": mode, "needs_rerank": needs_rerank}
 
 
 def retrieve_node(state: RAGState) -> Dict[str, Any]:
@@ -202,9 +208,9 @@ def retrieve_node(state: RAGState) -> Dict[str, Any]:
     mode = state["retrieval_mode"]
 
     if mode == "hybrid":
-        docs = hybrid_retrieve(question, k=4)
+        docs = hybrid_retrieve(question, k=config.get("num_docs", 4))
     else:
-        docs = dense_retrieve(question, k=4)
+        docs = dense_retrieve(question, k=config.get("num_docs", 4))    
 
     return {"retrieved_docs": docs}
 
@@ -212,8 +218,6 @@ def retrieve_node(state: RAGState) -> Dict[str, Any]:
 def rerank_node(state: RAGState) -> Dict[str, Any]:
     """
     Optional reranking step.
-    For a first version, this can be very simple.
-    Later, use a cross-encoder reranker here.
     """
     docs = state["retrieved_docs"]
     reranked = simple_rerank(state["question"], docs)
@@ -227,53 +231,50 @@ def generate_node(state: RAGState) -> Dict[str, Any]:
     """
     question = state["question"]
     docs = state.get("reranked_docs") or state.get("retrieved_docs", [])
-
     answer = generate_answer(question, docs)
     citations = extract_citations(docs)
-
-    return {
-        "draft_answer": answer,
-        "citations": citations,
-    }
+    return {"draft_answer": answer, "citations": citations}
 
 
 def finalize_node(state: RAGState) -> Dict[str, Any]:
     """
     Final packaging step.
-    In later steps, you can add groundedness checks, formatting,
+    In later steps, can add groundedness checks, formatting,
     confidence notes, or a response schema here.
     """
-    final_answer = state["draft_answer"]
-    return {"final_answer": final_answer}
+    return   # For now, just pass everything through without changes
 
 
 # -------------------------------------------------------------------
-# 4. Conditional routing functions
+# Conditional routing functions
 # -------------------------------------------------------------------
 # LangGraph supports conditional edges so execution can branch
 # depending on the current state. This is what makes the workflow
 # "agentic" rather than a fixed sequence.
-# [web:17][web:46]
 
 def route_after_retrieval_mode(state: RAGState) -> Literal["retrieve_node"]:
     """
     This function exists mainly to make the routing explicit.
-    You can later expand this to choose different retriever nodes.
+    Can later expand this to choose different retriever nodes.
     """
-    return "retrieve_node"
-
+    original_question = state["question"]
+    retrieved = state.get("retrieved_docs", [])
+    state["question"] = original_question + "\n\n".join(retrieved[0]["text"]) #add more context to the query
+    retrieve_node(state)
+    state["question"] = original_question
 
 def route_after_retrieve(state: RAGState) -> Literal["rerank_node", "generate_node"]:
     """
     Decide whether to rerank or go directly to generation.
     """
     if state.get("needs_rerank", False):
-        return "rerank_node"
-    return "generate_node"
+        rerank_node(state)  # perform reranking in-place to update state
+    else:
+        generate_node(state) # generate directly without reranking
 
 
 # -------------------------------------------------------------------
-# 5. Build the graph
+# Building the graph
 # -------------------------------------------------------------------
 # The workflow is:
 # START
@@ -284,9 +285,7 @@ def route_after_retrieve(state: RAGState) -> Literal["rerank_node", "generate_no
 #   -> generate_node
 #   -> finalize_node
 #   -> END
-#
-# This matches the workflow pattern discussed in LangGraph docs.
-# [web:17][web:46]
+
 
 def build_rag_graph():
     builder = StateGraph(RAGState)
@@ -335,7 +334,7 @@ def build_rag_graph():
 
 
 # -------------------------------------------------------------------
-# 6. Simple local test
+# Simple local test
 # -------------------------------------------------------------------
 # This lets you run the graph directly before wiring it into FastAPI.
 
