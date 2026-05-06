@@ -257,11 +257,11 @@ def route_after_retrieval_mode(state: RAGState) -> Literal["retrieve_node"]:
     This function exists mainly to make the routing explicit.
     Can later expand this to choose different retriever nodes.
     """
-    original_question = state["question"]
-    retrieved = state.get("retrieved_docs", [])
-    state["question"] = original_question + "\n\n".join(retrieved[0]["text"]) #add more context to the query
-    retrieve_node(state)
-    state["question"] = original_question
+    # original_question = state["question"]
+    # retrieved = state.get("retrieved_docs", [])
+    # {"question" = original_question + "\n\n".join(retrieved[0]["text"])} #add more context to the query
+    # retrieve_node(state)
+    # {"question" = original_question}
 
 def route_after_retrieve(state: RAGState) -> Literal["rerank_node", "generate_node"]:
     """
