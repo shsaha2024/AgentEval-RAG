@@ -86,9 +86,10 @@ def choose_retrieval_mode(query_type: str) -> str:
     - multi_hop -> hybrid
     - summary -> hybrid
     """
-    if query_type in {"multi_hop", "summary"}:
+    if query_type == "factual":
+        return "dense"  
+    else:
         return "hybrid"
-    return "dense"
 
 
 def dense_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
@@ -129,7 +130,7 @@ def dense_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
             "source": doc.metadata.get("url",""),
             "score": 1-score,  # convert distance to similarity for better interpretability
         })
-    return response
+    return response[::-1] #make it increasing for consistency with reranking
 
 
 def hybrid_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
@@ -231,7 +232,7 @@ def retrieve_node(state: RAGState) -> Dict[str, Any]:
 def add_context_node(state: RAGState) -> Dict[str, Any]:
     original_question = state["question"]
     retrieved = state.get("retrieved_docs", [])
-    context_text = "\n\n".join(retrieved[0]["text"]) #add more context to the query
+    context_text = "\n\n".join(retrieved[-1]["text"]) #add more context to the query
     return {"question": original_question + "\n\nContext:\n" + context_text, "original_question": original_question} #update the question in the state to include retrieved context before retrieval
 
 
@@ -239,8 +240,9 @@ def rerank_node(state: RAGState) -> Dict[str, Any]: # takes addtional context, r
     """
     Optional reranking step.
     """
-    docs = dense_retrieve(state["question"], k=config.get("num_docs", 4)*2) # retrieve more docs for reranking
-    reranked = simple_rerank(state["question"], docs)[-config.get("num_docs", 4):][::-1] # then cut back down to desired number of docs after reranking
+    docs = hybrid_retrieve(state["question"], k=config.get("num_docs", 4)*2) # retrieve more docs for reranking
+    reranked = simple_rerank(state["question"], docs)[-config.get("num_docs", 4):] # then cut back down to desired number of docs after reranking
+    #Now docs are in increasing order of relevance for consistency
     print("Reranked documents.")
     return {"reranked_docs": reranked}
 
