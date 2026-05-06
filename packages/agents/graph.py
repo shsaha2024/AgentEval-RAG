@@ -9,15 +9,22 @@ from langgraph.graph import StateGraph, START, END
 from google import genai 
 from dotenv import load_dotenv
 import os
+import yaml
+from packages.retrieval.retriever import PGVectorRetriever, RetrievalConfig
+from packages.retrieval.vector_store import PostgresConfig
+from packages.retrieval.embed import EmbeddingConfig
+
+
 load_dotenv()  # Load environment variables from .env file
+config = yaml.safe_load(open("configs/agent.yaml", 'r'))
 
-
-api_key = os.getenv("GEMINI_API_KEY")
+api_key = os.getenv("GEMINI_API_KEY") #extracting api key from .env file, make sure to set it before running the code
 client = genai.Client(api_key=api_key)
-#sample usage: client.models.generate_content( model="gemini-3.1-flash-lite-preview", contents="Explain how AI works in a few words")
+model = config.get("model", "gemini-2.5-flash")  # Default to "gemini-2.5-flash" if not specified
+#sample usage: client.models.generate_content( model="gemini-2.5-flash", contents="Explain how AI works in a few words")
 
 # -------------------------------------------------------------------
-# 1. Define the shared graph state
+# The shared graph state
 # -------------------------------------------------------------------
 # LangGraph's StateGraph works by passing a shared state object
 # between nodes. Each node reads from the current state and returns
@@ -36,9 +43,8 @@ class RAGState(TypedDict, total=False):
     final_answer: str
     needs_rerank: bool
 
-
 # -------------------------------------------------------------------
-# 2. Plug-in interfaces to your existing code
+# Plug-in interfaces to existing code
 # -------------------------------------------------------------------
 # Replace these with imports from your own project.
 # The graph should call your retrieval / generation functions, not
@@ -47,19 +53,16 @@ class RAGState(TypedDict, total=False):
 def classify_query(question: str) -> str:
     """
     Simple query classification.
-    You can replace this with an LLM-based classifier later.
-
     Returns labels like:
     - 'factual'
     - 'multi_hop'
     - 'summary'
     """
-    q = question.lower()
-    if "compare" in q or "difference" in q:
-        return "multi_hop"
-    if "summarize" in q or "overview" in q:
-        return "summary"
-    return "factual"
+    prompt = f"Classify the following question as one of the these listed labels ['factual', 'multi_hop', 'summary']:\n\
+          Question: {question}\n\
+            Respond with only the chosen label from the given options."
+    response = client.models.generate_content(model=model, contents=prompt)
+    return response.text.strip()
 
 
 def choose_retrieval_mode(query_type: str) -> str:
@@ -77,7 +80,7 @@ def choose_retrieval_mode(query_type: str) -> str:
     return "dense"
 
 
-def dense_retrieve(question: str, k: int = 5) -> List[Dict[str, Any]]:
+def dense_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
     """
     Replace with your step-5 dense retriever.
     Expected doc structure:
@@ -88,7 +91,10 @@ def dense_retrieve(question: str, k: int = 5) -> List[Dict[str, Any]]:
         'score': 0.84
     }
     """
-    # TODO: import and call your actual retriever
+    retriever = PGVectorRetriever(
+        embedding_config=EmbeddingConfig(model_name="BAAI/bge-small-en-v1.5"),
+        postgres_config=PostgresConfig(),
+        retrieval_config=RetrievalConfig(k=k))
     return [
         {
             "chunk_id": "dense_1",
@@ -105,12 +111,16 @@ def dense_retrieve(question: str, k: int = 5) -> List[Dict[str, Any]]:
     ]
 
 
-def hybrid_retrieve(question: str, k: int = 5) -> List[Dict[str, Any]]:
+def hybrid_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
     """
     Replace with your hybrid retriever if available.
     If hybrid is not ready yet, you can temporarily point this to
     dense_retrieve() and still keep the graph structure intact.
     """
+    retriever = PGVectorRetriever(
+        embedding_config=EmbeddingConfig(model_name="BAAI/bge-small-en-v1.5"),
+        postgres_config=PostgresConfig(),
+        retrieval_config=RetrievalConfig(k=k))
     return [
         {
             "chunk_id": "hybrid_1",
@@ -203,9 +213,9 @@ def retrieve_node(state: RAGState) -> Dict[str, Any]:
     mode = state["retrieval_mode"]
 
     if mode == "hybrid":
-        docs = hybrid_retrieve(question, k=5)
+        docs = hybrid_retrieve(question, k=4)
     else:
-        docs = dense_retrieve(question, k=5)
+        docs = dense_retrieve(question, k=4)
 
     return {"retrieved_docs": docs}
 
