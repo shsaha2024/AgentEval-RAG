@@ -13,6 +13,7 @@ import yaml
 from packages.retrieval.retriever import PGVectorRetriever, RetrievalConfig
 from packages.retrieval.vector_store import PostgresConfig
 from packages.retrieval.embed import EmbeddingConfig
+from sentence_transformers import CrossEncoder
 
 
 load_dotenv()  # Load environment variables from .env file
@@ -58,12 +59,15 @@ def classify_query(question: str) -> str:
     - 'multi_hop'
     - 'summary'
     """
-    prompt = f"Classify the following question as one of the these listed labels ['factual', 'multi_hop', 'summary']:\n\
-          Question: {question}\n\
-            Respond with only the chosen label from the given options."
+    prompt = f"Classify the following question as one of the labels in the array ['factual', 'multi_hop', 'summary'] by responding with only the chosen label and nothing else:\n\
+          Question: {question}"
     response = client.models.generate_content(model=model, contents=prompt)
-    return response.text.strip()
-
+    category = response.text.strip()
+    if category not in {"factual", "multi_hop", "summary"}:
+        print(f"Warning: unrecognized query type '{category}'. Defaulting to 'factual'.")
+        return "factual"
+    else:
+        return category
 
 def choose_retrieval_mode(query_type: str) -> str:
     """
@@ -82,7 +86,6 @@ def choose_retrieval_mode(query_type: str) -> str:
 
 def dense_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
     """
-    Replace with your step-5 dense retriever.
     Expected doc structure:
     {
         'chunk_id': 'doc_12_chunk_3',
@@ -95,20 +98,20 @@ def dense_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
         embedding_config=EmbeddingConfig(model_name="BAAI/bge-small-en-v1.5"),
         postgres_config=PostgresConfig(),
         retrieval_config=RetrievalConfig(k=k))
-    return [
-        {
-            "chunk_id": "dense_1",
-            "text": "Dense retrieval result 1 about the question.",
-            "source": "https://example.com/doc1",
-            "score": 0.84,
-        },
-        {
-            "chunk_id": "dense_2",
-            "text": "Dense retrieval result 2 with supporting details.",
-            "source": "https://example.com/doc2",
-            "score": 0.77,
-        },
-    ]
+    results = retriever.similarity_search_with_score(
+            query=question,
+            k=k,
+            filter=None
+        )
+    response = []
+    for doc, score in (results):
+        response.append({
+            "chunk_id": doc.metadata.get("chunk_index",0),
+            "text": doc.page_content,
+            "source": doc.metadata.get("url",""),
+            "score": 1-score,  # convert distance to similarity for better interpretability
+        })
+    return response
 
 
 def hybrid_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
@@ -117,39 +120,25 @@ def hybrid_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
     If hybrid is not ready yet, you can temporarily point this to
     dense_retrieve() and still keep the graph structure intact.
     """
-    retriever = PGVectorRetriever(
-        embedding_config=EmbeddingConfig(model_name="BAAI/bge-small-en-v1.5"),
-        postgres_config=PostgresConfig(),
-        retrieval_config=RetrievalConfig(k=k))
-    return [
-        {
-            "chunk_id": "hybrid_1",
-            "text": "Hybrid retrieval result 1 with richer evidence.",
-            "source": "https://example.com/doc3",
-            "score": 0.89,
-        },
-        {
-            "chunk_id": "hybrid_2",
-            "text": "Hybrid retrieval result 2 with additional context.",
-            "source": "https://example.com/doc4",
-            "score": 0.80,
-        },
-    ]
+    return dense_retrieve(question, k)
 
 
-def simple_rerank(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def simple_rerank(query: str, docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Placeholder reranker.
-    In production, replace with a cross-encoder or learned reranker.
-    For now, sort by score descending.
+    Cross-encoder reranker. Can use LLM-as-a-Judge for more complex logic later.
     """
-    return sorted(docs, key=lambda d: d.get("score", 0.0), reverse=True)
+    model = CrossEncoder(config.get("reranker", "BAAI/bge-reranker-base"))
+    pairs = [(query, doc["text"]) for doc in docs]
+    scores = model.predict(pairs)
+    reranked_results = sorted(
+    zip(docs, scores), key=lambda x: x[1], reverse=True
+)
+    return [doc for doc, score in reranked_results]
 
 
 def generate_answer(question: str, docs: List[Dict[str, Any]]) -> str:
     """
-    Replace with your actual LLM call.
-
+    Generate an answer based on the retrieved documents.
     A good pattern is to build a prompt that includes:
     - the question
     - retrieved context
@@ -227,7 +216,7 @@ def rerank_node(state: RAGState) -> Dict[str, Any]:
     Later, use a cross-encoder reranker here.
     """
     docs = state["retrieved_docs"]
-    reranked = simple_rerank(docs)
+    reranked = simple_rerank(state["question"], docs)
     return {"reranked_docs": reranked}
 
 
