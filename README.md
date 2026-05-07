@@ -1,6 +1,6 @@
 # AgentEval-RAG
 
-AgentEval-RAG is an open-source, production-style **agentic RAG backend** for grounded question answering over technical documentation. It is designed to show how a retrieval system evolves into a modular AI engineering platform: reproducible corpus ingestion, containerized pgvector-based semantic retrieval, FastAPI service endpoints, and a LangGraph workflow for query routing, retrieval, reranking, and answer generation.
+AgentEval-RAG is an open-source, production-style **agentic RAG backend** for grounded question answering over technical documentation. It is designed to show the evolution of a retrieval system into a modular AI engineering platform: reproducible corpus ingestion, containerized pgvector-based semantic retrieval, FastAPI service endpoints, and a LangGraph workflow for query routing, retrieval, reranking, and answer generation.
 
 The current version already supports:
 - Open-source document download and preprocessing
@@ -28,7 +28,7 @@ RAG demos tend to jump into document-based-chatbots. In practice, the hard part 
 - modular
 - easy to extend into evaluation and deployment workflows
 
-AgentEval-RAG takes a software-engineering-first approach. Instead of treating retrieval as a hidden helper, it makes ingestion, indexing, retrieval, API contracts, and orchestration explicit and reusable.
+AgentEval-RAG takes an engineering-first approach. Instead of treating retrieval as a hidden helper, it makes ingestion, indexing, retrieval, API contracts, and orchestration explicit and reusable.
 
 ---
 
@@ -228,7 +228,7 @@ A `requirements.txt` file is provided. This can be used for downloading all the 
 pip install -r requirements.txt
 ```
 
-Or, if you are installing manually, make sure your environment includes the libraries used in the repo:
+Or, if installing manually, make sure environment includes the libraries used in the repo:
 - fastapi
 - uvicorn
 - pydantic
@@ -249,7 +249,7 @@ Or, if you are installing manually, make sure your environment includes the libr
 
 ### 4. Start PostgreSQL with pgvector
 
-You need a PostgreSQL instance with the `vector` extension enabled.
+Need a PostgreSQL instance with the `vector` extension enabled.
 
 Set environment variables as needed:
 
@@ -262,10 +262,10 @@ export POSTGRES_PASSWORD=langchain
 export PGVECTOR_COLLECTION=agentevaldocs
 ```
 
-If you are using the LangGraph answer-generation path, also set:
+If using the LangGraph answer-generation path, also set:
 
 ```bash
-export GEMINI_API_KEY=your_api_key_here
+$env:GEMINI_API_KEY = "api_key_here"
 ```
 
 ### 5. Download the public docs corpus
@@ -279,8 +279,6 @@ python scripts/download_docs.py
 ```bash
 python -m packages.ingestion.build_corpus
 ```
-
-If your local layout differs, run the corpus builder the way your repo is currently wired.
 
 ### 7. Build the pgvector index
 
@@ -360,8 +358,6 @@ The repository also includes a LangGraph-backed question-answering path in `apps
 - citations
 - retrieval mode
 - query type
-
-That path is the beginning of the full agentic QA interface.
 
 ---
 
