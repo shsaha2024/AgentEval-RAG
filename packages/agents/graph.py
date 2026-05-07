@@ -147,12 +147,16 @@ def simple_rerank(query: str, docs: List[Dict[str, Any]]) -> List[Dict[str, Any]
     Cross-encoder reranker. Can use LLM-as-a-Judge for more complex logic later.
     """
     model = CrossEncoder(config.get("reranker", "BAAI/bge-reranker-base"))
-    pairs = [(query, doc["text"]) for doc in docs]
-    scores = model.predict(pairs)
+    scores = []
+    for doc in docs:
+        score = model.predict([(query, doc["text"])])[0]
+        scores.append(score)
+        doc["score"] = score  # add score to doc for later use
     reranked_results = sorted(
-    zip(docs, scores), key=lambda x: x[1], reverse=False # making it increasing order of relevance for LLM to rerank later, since LLMs generally prefer to see less relevant info first and then more relevant info
+    docs, key=lambda x: x["score"], reverse=False # making it increasing order of relevance for LLM to rerank later, since LLMs generally prefer to see less relevant info first and then more relevant info
 )
-    return [doc for doc, score in reranked_results]
+    print(f"Reranking scores: {[doc['score'] for doc in reranked_results]}")
+    return reranked_results
 
 
 def generate_answer(question: str, docs: List[Dict[str, Any]]) -> str:
@@ -165,7 +169,7 @@ def generate_answer(question: str, docs: List[Dict[str, Any]]) -> str:
     - instructions to cite sources
     """
     joined_context = "\n\n".join(
-        f"[{i+1}, with {doc['sections']} as Section co-ordinate,] {doc['text']}" for i, doc in enumerate(docs)
+        f"[{i+1}, with {doc['sections']} as Section co-ordinate,] {doc['text']}" for i, doc in enumerate(docs) if doc.get("score", 0)>0.5
     )
     try:
         response = client.models.generate_content(model=model, contents=joined_context+question)
@@ -200,7 +204,6 @@ def classify_node(state: RAGState) -> Dict[str, Any]:
     """
     question = state["question"]
     query_type = classify_query(question)
-    print("Classified query type:", query_type)
     return {"query_type": query_type}
 
 
@@ -210,7 +213,6 @@ def retrieval_mode_node(state: RAGState) -> Dict[str, Any]:
     """
     mode = choose_retrieval_mode(state["query_type"])
     needs_rerank = mode == "hybrid"
-    print("Chosen retrieval mode:", mode, "Needs rerank?", needs_rerank)
     return {"retrieval_mode": mode, "needs_rerank": needs_rerank}
 
 
@@ -233,6 +235,7 @@ def add_context_node(state: RAGState) -> Dict[str, Any]:
     original_question = state["question"]
     retrieved = state.get("retrieved_docs", [])
     context_text = "\n\n".join(retrieved[-1]["text"]) #add more context to the query
+    print(f"Added context with score {retrieved[-1]['score'] if retrieved else 'N/A'} to the question for reranking out of scores {[doc['score'] for doc in retrieved]}.")
     return {"question": original_question + "\n\nContext:\n" + context_text, "original_question": original_question} #update the question in the state to include retrieved context before retrieval
 
 
@@ -244,7 +247,7 @@ def rerank_node(state: RAGState) -> Dict[str, Any]: # takes addtional context, r
     reranked = simple_rerank(state["question"], docs)[-config.get("num_docs", 4):] # then cut back down to desired number of docs after reranking
     #Now docs are in increasing order of relevance for consistency
     print("Reranked documents.")
-    return {"reranked_docs": reranked}
+    return {"reranked_docs": [doc for doc in reranked if doc.get("score", 0) > 0.5]}  # pass through the reranked docs to the next node
 
 
 def generate_node(state: RAGState) -> Dict[str, Any]:
@@ -345,8 +348,8 @@ def build_rag_graph():
 # This lets you run the graph directly before wiring it into FastAPI.
 
 if __name__ == "__main__":
-    graph = build_rag_graph()
     print(time())
+    graph = build_rag_graph()
     result = graph.invoke(
         {
             "question": "Explain the fundamental commands of stategraph in langgraph and how it relates to broader agentic AI design patterns?"
