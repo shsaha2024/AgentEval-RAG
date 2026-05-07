@@ -1,6 +1,6 @@
 # apps/api/routes/query.py
 
-from fastapi import APIRouter
+from fastapi import APIRouter, FastAPI
 from pydantic import BaseModel
 from packages.agents.graph import build_rag_graph
 
@@ -20,3 +20,6 @@ def query_endpoint(request: QueryRequest):
         "retrieval_mode": result.get("retrieval_mode"),
         "query_type": result.get("query_type"),
     }
+
+app = FastAPI()
+app.include_router(router)

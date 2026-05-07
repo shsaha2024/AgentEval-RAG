@@ -147,10 +147,8 @@ def simple_rerank(query: str, docs: List[Dict[str, Any]]) -> List[Dict[str, Any]
     Cross-encoder reranker. Can use LLM-as-a-Judge for more complex logic later.
     """
     model = CrossEncoder(config.get("reranker", "BAAI/bge-reranker-base"))
-    scores = []
     for doc in docs:
         score = model.predict([(query, doc["text"])])[0]
-        scores.append(score)
         doc["score"] = score  # add score to doc for later use
     reranked_results = sorted(
     docs, key=lambda x: x["score"], reverse=False # making it increasing order of relevance for LLM to rerank later, since LLMs generally prefer to see less relevant info first and then more relevant info
@@ -168,6 +166,10 @@ def generate_answer(question: str, docs: List[Dict[str, Any]]) -> str:
     - instructions to stay grounded
     - instructions to cite sources
     """
+    model = CrossEncoder(config.get("reranker", "BAAI/bge-reranker-base"))
+    for doc in docs:
+        score = model.predict([(question, doc["text"])])[0]
+        doc["score"] = score  # add score to doc for later use
     joined_context = "\n\n".join(
         f"[{i+1}, with {doc['sections']} as Section co-ordinate,] {doc['text']}" for i, doc in enumerate(docs) if doc.get("score", 0)>0.5
     )
@@ -177,9 +179,9 @@ def generate_answer(question: str, docs: List[Dict[str, Any]]) -> str:
         print(f"Error generating content: {e}")
         response = client.models.generate_content(model=backup_model, contents=joined_context+question)
     return (
-        f"Grounded answer based on retrieved evidence:\n{joined_context}\n\n"
-        f"For the question: {question}\n\n"
-        f"{response.text}."
+        # f"Grounded answer based on retrieved evidence:\n{joined_context}\n\n"
+        # f"For the question: {question}\n\n"
+        f"{response.text}"
     )
 
 
@@ -234,6 +236,9 @@ def retrieve_node(state: RAGState) -> Dict[str, Any]:
 def add_context_node(state: RAGState) -> Dict[str, Any]:
     original_question = state["question"]
     retrieved = state.get("retrieved_docs", [])
+    if not retrieved:
+        print("No documents retrieved, skipping context addition.")
+        return {"question": original_question, "original_question": original_question}  # pass through without changes if no docs retrieved
     context_text = "\n\n".join(retrieved[-1]["text"]) #add more context to the query
     print(f"Added context with score {retrieved[-1]['score'] if retrieved else 'N/A'} to the question for reranking out of scores {[doc['score'] for doc in retrieved]}.")
     return {"question": original_question + "\n\nContext:\n" + context_text, "original_question": original_question} #update the question in the state to include retrieved context before retrieval
