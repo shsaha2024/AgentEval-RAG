@@ -112,8 +112,8 @@ def dense_retrieve(question: str, k: int = 4) -> List[Dict[str, Any]]:
             filter=None
         )
     response = []
-    sections = []
-    for doc, score in (results):
+    for doc, score in results:
+        sections = []
         if doc.metadata.get("section_h1",None):
             sections = [doc.metadata.get("section_h1", "")]
             curr = 1
@@ -168,10 +168,10 @@ def generate_answer(question: str, docs: List[Dict[str, Any]]) -> str:
         f"[{i+1}, with {doc['sections']} as Section co-ordinate,] {doc['text']}" for i, doc in enumerate(docs)
     )
     try:
-        response = client.models.generate_content(model=model, contents=question+joined_context)
+        response = client.models.generate_content(model=model, contents=joined_context+question)
     except Exception as e:
         print(f"Error generating content: {e}")
-        response = client.models.generate_content(model=backup_model, contents=question+joined_context)
+        response = client.models.generate_content(model=backup_model, contents=joined_context+question)
     return (
         f"Grounded answer based on retrieved evidence:\n{joined_context}\n\n"
         f"For the question: {question}\n\n"
