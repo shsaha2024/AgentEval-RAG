@@ -1,413 +1,479 @@
 # AgentEval-RAG
 
-A modular retrieval-first RAG backend for experimenting with document ingestion, semantic search, and API-first retrieval over open-source corpora.
+AgentEval-RAG is an open-source, production-style **agentic RAG backend** for grounded question answering over technical documentation. It is designed to show how a retrieval system evolves into a modular AI engineering platform: reproducible corpus ingestion, pgvector-based semantic retrieval, FastAPI service endpoints, and a LangGraph workflow for query routing, retrieval, reranking, and answer generation.
 
-> Current status: retrieval MVP complete. The project supports document ingestion, chunking, indexing, similarity search, and a FastAPI service layer for querying retrieved chunks. Full answer generation and agentic orchestration are planned next.
+The current version already supports:
+- Open-source document download and preprocessing
+- Markdown-aware chunking with metadata preservation
+- pgvector indexing over PostgreSQL
+- Dense retrieval with optional score inspection and source filtering
+- FastAPI endpoints for search and question answering
+- LangGraph-based orchestration for multi-step RAG
+- Basic test coverage for retrieval and API behavior
 
-## Overview
+This project is built as a serious backend foundation for:
+- grounded QA over open corpora
+- retrieval benchmarking
+- future hybrid / graph-enhanced retrieval experiments
+- production-oriented AI engineering portfolios
 
-AgentEval-RAG is an open-source project for building a production-style retrieval layer for RAG systems over technical documents and other public corpora. The current implementation focuses on the part that is most often under-engineered in early RAG projects: clean ingestion, reproducible indexing, search variants, and a typed API surface.
-
-The project is designed to evolve in phases:
-
-- Phase 1: ingestion and semantic retrieval
-- Phase 2: API-first retrieval service
-- Phase 3: grounded answer generation
-- Phase 4: agentic orchestration and evaluation
-
-At the current stage, this repository is intentionally retrieval-centric. It exposes the retriever as a service before adding generation so that the data and search layers are stable, testable, and reusable.
-
-## Current Features
-
-- Document ingestion pipeline for open-source corpora
-- Chunking and metadata preservation
-- Vector indexing for semantic retrieval
-- Similarity search with configurable top-k
-- Search variants such as score-returning search and source-constrained search
-- FastAPI retrieval API with typed request and response models
-- Unit and API-level test coverage for the retrieval layer
-- OpenAPI docs generated automatically by FastAPI
-
-## Project Status
-
-### Completed
-
-- Step 1: project scope and retrieval-first MVP definition
-- Step 2: repository structure
-- Step 3: open-source corpus and benchmark data selection
-- Step 4: ingestion and chunking pipeline
-- Step 5: baseline vector retrieval
-- Step 8: FastAPI API layer for retrieval
-
-### Not yet implemented
-
-- Step 6: hybrid retrieval
-- Step 7: citation-grounded answer generation
-- Step 9+: LangGraph orchestration, benchmarking workflows, and production hardening
+---
 
 ## Why this project
 
-Many RAG demos jump directly to generation, but generation quality depends heavily on ingestion quality, chunking strategy, retrieval relevance, and API design. This repository starts by making retrieval robust and observable before adding generation and agents.
+Many RAG demos jump directly to “chat with documents.” In practice, the hard part is building a system that is:
+- reproducible
+- inspectable
+- testable
+- modular
+- easy to extend into evaluation and deployment workflows
 
-That design choice has a few benefits:
+AgentEval-RAG takes a software-engineering-first approach. Instead of treating retrieval as a hidden helper, it makes ingestion, indexing, retrieval, API contracts, and orchestration explicit and reusable.
 
-- It isolates search quality from generation quality
-- It makes retrieval testable without model-dependent answer variability
-- It creates a reusable backend that can later be called by a UI, a benchmark runner, or a LangGraph workflow
-- It keeps the early system lightweight and easier to debug
+That makes the project useful both as:
+- a GitHub portfolio project for AI engineering / agentic AI roles
+- a backend foundation for future benchmark and product work
 
-## Repository Structure
+---
+
+## Current status
+
+### Implemented
+- Project scoping and retrieval-first architecture
+- Open-source documentation download scripts
+- Corpus construction and JSONL chunk generation
+- Metadata-aware chunking for technical documents
+- Embedding pipeline
+- PostgreSQL + pgvector vector store integration
+- Similarity search and similarity-with-score retrieval
+- Source-constrained retrieval options
+- FastAPI retrieval API
+- LangGraph RAG workflow with:
+  - query classification
+  - retrieval mode routing
+  - retrieval
+  - reranking path
+  - answer generation
+  - citation extraction
+  - final answer packaging
+- Retrieval and API tests
+
+### In progress / next
+- Better prompt and answer grounding controls
+- stronger reranking and filtering logic
+- benchmark runner over public RAG datasets
+- hybrid retrieval
+- graph-enhanced retrieval
+- CI / deployment hardening
+- richer observability and evaluation reports
+
+---
+
+## Repository structure
 
 ```text
-.
+AgentEval-RAG/
 ├── apps/
 │   └── api/
-│       └── main.py
+│       ├── main.py
+│       └── routes/
+│           └── query.py
 ├── packages/
+│   ├── agents/
+│   │   └── graph.py
 │   ├── ingestion/
-│   │   └── buikd_corpus.py   
-│   ├── retrieval/
-│   │   ├── embed.py
-│   │   ├── vector_store.py
-|   |   ├── retriever.py
-|   |   ├── vector_store.py
-|   |   └── test_search.py
-├── configs/
-│   └── chunking.yaml
+│   │   └── build_corpus.py
+│   └── retrieval/
+│       ├── embed.py
+│       ├── retriever.py
+│       └── vector_store.py
 ├── scripts/
 │   ├── download_docs.py
-│   └──  build_index.py
+│   └── build_index.py
 ├── tests/
-│   ├── test_search.py
-│   └── test_api.py
+│   ├── test_api.py
+│   └── test_search.py
+├── configs/
+│   ├── chunking.yaml
+│   └── agent.yaml
 ├── data/
 │   ├── raw/
-│   ├── processed/
-│   └── benchmark/
+│   └── processed/
 └── README.md
 ```
 
+---
+
 ## Architecture
 
-At the current stage, the system is organized into three main layers:
+The system has five layers.
 
-### 1. Ingestion layer
+### 1. Data acquisition
+`scripts/download_docs.py` downloads public technical documentation pages and saves them as raw JSON records. The current corpus targets public documentation sources such as LangChain and FastAPI.
 
-This layer loads raw open-source documents, normalizes them, chunks them into retrieval-friendly segments, and preserves useful metadata such as source name, section, and chunk ID.
+### 2. Corpus building
+`packages/ingestion/build_corpus.py` converts raw documents into chunked JSONL suitable for retrieval. It uses markdown-aware section splitting, text normalization, deduplication, and metadata preservation.
 
-Responsibilities:
-- load public documents
-- clean and normalize text
-- split into chunks
-- attach metadata
-- write processed artifacts for indexing
+Each chunk stores fields such as:
+- title
+- url
+- chunk index
+- section hierarchy
+- text
+- character count
 
-### 2. Retrieval layer
+### 3. Indexing
+`scripts/build_index.py` reads processed JSONL chunks, converts them into LangChain `Document` objects, computes embeddings, and loads them into PostgreSQL with pgvector.
 
-This layer builds and queries the vector index. It is responsible for semantic search and retrieval variations used by tests and the API.
+### 4. Retrieval
+`packages/retrieval/` contains:
+- embedding configuration and model setup
+- vector store configuration
+- retrieval wrappers for similarity search
+- score-returning search for debugging and evaluation
 
-Responsibilities:
-- embed processed chunks
-- store vectors in the chosen backend
-- run similarity search
-- support retrieval variants such as:
-  - plain similarity search
-  - similarity search with scores
-  - source-filtered search
+### 5. Agentic QA orchestration
+`packages/agents/graph.py` defines a LangGraph workflow that:
+1. classifies the incoming query
+2. chooses a retrieval strategy
+3. retrieves relevant chunks
+4. optionally reranks or expands context
+5. generates an answer
+6. extracts citations
+7. returns a finalized response
 
-### 3. API layer
+This gives the project a real agentic structure instead of a single linear chain.
 
-This layer exposes retrieval through FastAPI. It does not generate answers yet. Instead, it provides a stable service boundary around the retriever.
+---
 
-Responsibilities:
-- validate request bodies
-- call retrieval functions
-- normalize outputs into public response schemas
-- expose health and query endpoints
-- auto-generate OpenAPI docs
+## LangGraph workflow
 
-## What the API does today
+The current workflow is organized around explicit graph nodes rather than one monolithic function.
 
-The current API is a retrieval API, not a full QA API.
+High-level flow:
 
-### Implemented endpoints
+```text
+START
+  → classify_node
+  → retrieval_mode_node
+  → retrieve_node
+      ├── factual path → generate_node
+      └── hybrid/multihop path → add_context_node → rerank_node → generate_node
+  → finalize_node
+  → END
+```
 
-- `GET /health`  
-  Health check for service status
+Current routing logic includes:
+- query classification such as factual / multihop / summary
+- retrieval-mode selection
+- a reranking branch
+- answer generation with retrieved context
+- citation extraction from retrieved documents
 
-- `POST /query`  
-  Run semantic retrieval over the indexed corpus
+This structure is intentionally designed so that later work can add:
+- query rewriting
+- groundedness checks
+- fallback logic
+- benchmark instrumentation
+- hybrid or graph retrieval nodes
 
-### Typical `POST /query` request
+---
+
+## Tech stack
+
+- **Python**
+- **FastAPI**
+- **LangGraph**
+- **LangChain**
+- **PostgreSQL + pgvector**
+- **SentenceTransformers / embedding models**
+- **Pydantic**
+- **pytest**
+- **BeautifulSoup / requests** for public-doc ingestion
+
+---
+
+## Data sources
+
+This repository is intended to use only public, reproducible data sources.
+
+Current corpus scripts target public technical documentation, including:
+- FastAPI docs
+- LangChain / LangGraph docs
+
+Large corpora are not checked into the repo directly. Instead, the project provides scripts to download and preprocess them reproducibly.
+
+---
+
+## Setup
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/shsaha2024/AgentEval-RAG.git
+cd AgentEval-RAG
+```
+
+### 2. Create a Python environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+On Windows:
+
+```bash
+.venv\Scripts\activate
+```
+
+### 3. Install dependencies
+
+If you have a `requirements.txt`:
+
+```bash
+pip install -r requirements.txt
+```
+
+Or, if you are installing manually, make sure your environment includes the libraries used in the repo:
+- fastapi
+- uvicorn
+- pydantic
+- langgraph
+- langchain
+- langchain-postgres
+- sqlalchemy
+- psycopg
+- sentence-transformers
+- torch
+- requests
+- beautifulsoup4
+- pyyaml
+- tqdm
+- pytest
+- python-dotenv
+- google-genai
+
+### 4. Start PostgreSQL with pgvector
+
+You need a PostgreSQL instance with the `vector` extension enabled.
+
+Set environment variables as needed:
+
+```bash
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=6024
+export POSTGRES_DB=langchain
+export POSTGRES_USER=langchain
+export POSTGRES_PASSWORD=langchain
+export PGVECTOR_COLLECTION=agentevaldocs
+```
+
+If you are using the LangGraph answer-generation path, also set:
+
+```bash
+export GEMINI_API_KEY=your_api_key_here
+```
+
+### 5. Download the public docs corpus
+
+```bash
+python scripts/download_docs.py
+```
+
+### 6. Build processed chunks
+
+```bash
+python -m packages.ingestion.build_corpus
+```
+
+If your local layout differs, run the corpus builder the way your repo is currently wired.
+
+### 7. Build the pgvector index
+
+```bash
+python scripts/build_index.py --input data/processed/chunks.jsonl
+```
+
+### 8. Start the API
+
+```bash
+uvicorn apps.api.main:app --reload
+```
+
+Open:
+- `http://127.0.0.1:8000/docs`
+- `http://127.0.0.1:8000/redoc`
+
+---
+
+## API endpoints
+
+### `GET /health`
+
+Simple health check.
+
+Example response:
 
 ```json
 {
-  "query": "What does FastAPI use for request validation?",
-  "k": 3,
-  "mode": "similarity"
+  "status": "ok"
 }
 ```
 
-### Example response
+### `POST /query`
+
+Retrieval API over the indexed corpus.
+
+Example request:
 
 ```json
 {
-  "query": "What does FastAPI use for request validation?",
-  "mode": "similarity",
-  "k": 3,
-  "total_hits": 3,
+  "query": "How do I test FastAPI endpoints?",
+  "k": 4,
+  "mode": "similaritywithscores",
+  "source": "fastapi"
+}
+```
+
+Example response shape:
+
+```json
+{
+  "query": "How do I test FastAPI endpoints?",
+  "mode": "similaritywithscores",
+  "k": 4,
+  "total_hits": 4,
   "hits": [
     {
-      "chunk_id": "chunk_001",
-      "text": "FastAPI uses Pydantic models for request body parsing and validation.",
-      "source": "fastapi_docs",
-      "score": null,
+      "text": "....",
+      "url": "https://fastapi.tiangolo.com/tutorial/testing/",
+      "score": 0.82,
       "metadata": {
-        "section": "request-body"
+        "title": "Testing - FastAPI",
+        "chunkindex": 3,
+        "Sections": ["Tutorial", "Testing"]
       }
     }
   ]
 }
 ```
 
-### Supported retrieval modes
+### `POST /query` via LangGraph route
 
-The exact modes depend on the retriever implementation in this repository, but current testing and API design assume support for variants such as:
+The repository also includes a LangGraph-backed question-answering path in `apps/api/routes/query.py`, where the graph is invoked and returns:
+- question
+- answer
+- citations
+- retrieval mode
+- query type
 
-- `similarity`
-- `similarity_with_scores`
+That path is the beginning of the full agentic QA interface.
 
-If source filtering is implemented, the request may also support:
+---
 
-- `source`
+## Example local workflow
 
-## Data
+A typical local development loop is:
 
-This project is intended to use only open-source or publicly accessible corpora.
+1. Download or refresh public docs
+2. Build processed chunks
+3. Rebuild the vector index
+4. Run retrieval checks from CLI or tests
+5. Start the FastAPI app
+6. Query the API
+7. Iterate on chunking, retrieval, and graph behavior
 
-Examples of suitable data sources include:
-- public technical documentation
-- open benchmark corpora
-- public machine learning or framework documentation
-- openly licensed research summaries or structured QA datasets
+This makes the system easier to debug than a generation-first workflow.
 
-Large raw datasets are not stored directly in the repository. Instead, scripts should be provided to download and preprocess them reproducibly.
-
-## Getting Started
-
-### 1. Clone the repository
-
-```bash
-git clone <your-repo-url>
-cd AgentEval-RAG
-```
-
-### 2. Create an environment
-
-```bash
-# Fill in your preferred environment setup here
-```
-
-### 3. Install dependencies
-
-```bash
-# Fill in your installation command here
-```
-
-### 4. Download and preprocess the corpus
-
-```bash
-# Fill in your corpus download command here
-# Example:
-# python scripts/download_docs.py
-# python scripts/preprocess_docs.py
-```
-
-### 5. Build the vector index
-
-```bash
-# Fill in your indexing command here
-# Example:
-# python scripts/build_index.py
-```
-
-### 6. Run the FastAPI app
-
-```bash
-# Fill in your command here
-# Example:
-# uvicorn apps.api.main:app --reload
-```
-
-### 7. Open the docs
-
-After the server starts, visit:
-
-- `http://127.0.0.1:8000/docs`
-- `http://127.0.0.1:8000/redoc`
-
-## Development Workflow
-
-A typical local workflow looks like this:
-
-1. Download or refresh the source corpus
-2. Run preprocessing and chunking
-3. Rebuild the vector index if needed
-4. Start the API server
-5. Test `/health`
-6. Test `/query`
-7. Run the test suite
-
-This makes retrieval changes easy to validate before generation is added.
+---
 
 ## Testing
 
-The project currently emphasizes retrieval-layer and API-layer testing.
-
-### Run all tests
+Run all tests:
 
 ```bash
-# Fill in your test command here
-# Example:
-# pytest -q
+pytest -q
 ```
 
-### Run retrieval tests only
+Run API tests only:
 
 ```bash
-# Fill in your test command here
-# Example:
-# pytest tests/test_search.py -q
+pytest tests/test_api.py -q
 ```
 
-### Run API tests only
+Run retrieval tests only:
 
 ```bash
-# Fill in your test command here
-# Example:
-# pytest tests/test_api.py -q
+pytest tests/test_search.py -q
 ```
 
-### What should pass
+The current tests focus on:
+- retrieval behavior
+- API contract validation
+- request handling
+- search output structure
 
-At this stage, successful testing should confirm:
+---
 
-- the app imports without crashing
-- `/health` returns a successful response
-- `/query` accepts valid request bodies
-- invalid request bodies are rejected cleanly
-- the retriever returns correctly structured hits
-- score-returning retrieval modes behave as expected
-- fixed-source or constrained retrieval works if implemented
+## Design decisions
 
-## Example Use Cases
+### Retrieval-first foundation
+The project was intentionally built from the bottom up: ingestion, chunking, indexing, retrieval, and only then answer generation. This makes failures easier to localize and keeps the retrieval layer reusable.
 
-This repository is currently useful for:
+### API-first boundary
+Retrieval and QA are exposed as service interfaces rather than buried inside notebooks or scripts. That makes the repo easier to extend into evaluation pipelines, frontends, and benchmark harnesses.
 
-- testing chunking and indexing strategies
-- evaluating retrieval behavior before adding generation
-- exposing document search via an API
-- building a retrieval backend for a later RAG assistant
-- comparing search variants in a controlled setup
+### Explicit graph orchestration
+Using LangGraph keeps the control flow visible. Query classification, routing, retrieval, reranking, and generation are represented as graph nodes, which is a better fit for agentic AI systems than a single chain.
 
-## Design Decisions
+### Open-data reproducibility
+The project is designed around public technical corpora and script-based data acquisition, so others can reproduce the same corpus and rebuild the index locally.
 
-### Retrieval-first development
+---
 
-This project intentionally implements retrieval before answer generation. That keeps the system debuggable and makes failures easier to localize.
+## Current limitations
 
-### API-first interface
+This is still an actively developing backend, not yet a polished end-user product.
 
-Retrieval is exposed through FastAPI rather than staying hidden inside scripts or tests. This makes the backend reusable by future components such as:
+Current limitations include:
+- hybrid retrieval is only partially implemented
+- reranking logic is still evolving
+- groundedness checks are not yet robust
+- benchmark runners are not yet integrated
+- deployment and CI hardening are still pending
+- observability is still basic
 
-- an answer generation module
-- a benchmark harness
-- a frontend
-- a LangGraph workflow
+These are deliberate next steps rather than missing foundations.
 
-### Typed request and response contracts
-
-The API uses Pydantic-backed request and response models so that:
-- invalid input is rejected automatically
-- output shapes remain stable
-- docs are generated from the code
-- downstream consumers have a predictable contract
-
-## Current Limitations
-
-The current version is intentionally incomplete.
-
-Not implemented yet:
-- hybrid retrieval
-- reranking
-- answer generation
-- citations over final answers
-- LangGraph orchestration
-- benchmark dashboards
-- deployment hardening
-
-This repository should currently be viewed as a strong retrieval service foundation rather than a complete end-user RAG assistant.
+---
 
 ## Roadmap
 
-### Near-term
-
-- add hybrid retrieval
-- add reranking
-- standardize metadata filters
-- improve retrieval diagnostics
+### Near term
+- strengthen prompt design and answer grounding
+- improve reranking and retrieval diagnostics
+- standardize config handling
+- clean up source filtering and response schemas
 
 ### Next phase
-
-- add grounded answer generation
-- return citations tied to retrieved chunks
-- add confidence and fallback logic
+- add benchmark runners on public RAG datasets
+- compare dense vs hybrid retrieval
+- log latency, retrieval quality, and answer quality
+- add fallback logic and confidence annotations
 
 ### Later phase
-
-- convert the pipeline into a LangGraph workflow
-- add benchmark runners
-- compare retrieval modes on public datasets
-- add deployment and CI hardening
-
-## Suggested Benchmarks for Future Work
-
-Once answer generation and evaluation are added, the project can be extended to benchmark:
-- retrieval quality across chunking settings
-- vector vs hybrid retrieval
-- groundedness of generated answers
-- latency and throughput tradeoffs
-- graph-augmented retrieval on public benchmarks
-
-## Contributing
-
-Contributions are welcome, especially in the following areas:
-
-- ingestion adapters for public corpora
-- retrieval backends and filters
-- evaluation scripts
-- benchmark integrations
-- API improvements
-- documentation and examples
-
-For substantial changes, open an issue first describing the proposed change and expected impact.
-
-## Notes for Recruiters / Reviewers
-
-This repository is being built in staged milestones. The current version demonstrates:
-
-- reproducible document ingestion
-- semantic retrieval over open corpora
-- testable retrieval variants
-- a typed FastAPI retrieval service
-- a software-engineering-first approach to building toward RAG
-
-The next major milestone is grounded answer generation on top of the existing retrieval API.
+- add graph-enhanced retrieval
+- add CI / GitHub Actions
+- containerize local deployment
+- add evaluation dashboards and experiment reports
 
 ## References
 
-- FastAPI request body docs: https://fastapi.tiangolo.com/tutorial/body/
-- FastAPI testing docs: https://fastapi.tiangolo.com/tutorial/testing/
-- FastAPI response model docs: https://fastapi.tiangolo.com/tutorial/response-model/
-- LangGraph workflow docs: https://docs.langchain.com/oss/python/langgraph/workflows-agents
+- [FastAPI documentation](https://fastapi.tiangolo.com/)
+- [FastAPI testing](https://fastapi.tiangolo.com/tutorial/testing/)
+- [LangGraph workflows and agents](https://docs.langchain.com/oss/python/langgraph/workflows-agents)
+- [LangGraph Python reference](https://reference.langchain.com/python/langgraph/overview)
+- [LangChain PGVector integration](https://docs.langchain.com/oss/python/integrations/vectorstores/pgvector)
+- [pgvector-python](https://github.com/pgvector/pgvector-python)
 
