@@ -146,10 +146,6 @@ def simple_rerank(query: str, docs: List[Dict[str, Any]]) -> List[Dict[str, Any]
     """
     Cross-encoder reranker. Can use LLM-as-a-Judge for more complex logic later.
     """
-    model = CrossEncoder(config.get("reranker", "BAAI/bge-reranker-base"))
-    for doc in docs:
-        score = model.predict([(query, doc["text"])])[0]
-        doc["score"] = score  # add score to doc for later use
     reranked_results = sorted(
     docs, key=lambda x: x["score"], reverse=False # making it increasing order of relevance for LLM to rerank later, since LLMs generally prefer to see less relevant info first and then more relevant info
 )
@@ -170,17 +166,15 @@ def generate_answer(question: str, docs: List[Dict[str, Any]]) -> str:
     for doc in docs:
         score = model.predict([(question, doc["text"])])[0]
         doc["score"] = score  # add score to doc for later use
-    joined_context = "\n\n".join(
-        f"[{i+1}, with {doc['sections']} as Section co-ordinate,] {doc['text']}" for i, doc in enumerate(docs) if doc.get("score", 0)>0.5
+    joined_context = "Using Sources: \n\n".join(
+        f"[{i+1}, with {doc['sections']} as Section co-ordinate,] {doc['text']}\n\n" for i, doc in enumerate(docs) if doc.get("score", 0)>config.get("relevance_threshold", 0.5)
     )
     try:
-        response = client.models.generate_content(model=model, contents=joined_context+question)
+        response = client.models.generate_content(model=model, contents=joined_context+"Answer the question: \n\n"+question)
     except Exception as e:
         print(f"Error generating content: {e}")
-        response = client.models.generate_content(model=backup_model, contents=joined_context+question)
+        response = client.models.generate_content(model=backup_model, contents=joined_context+"Answer the question: \n\n"+question)
     return (
-        # f"Grounded answer based on retrieved evidence:\n{joined_context}\n\n"
-        # f"For the question: {question}\n\n"
         f"{response.text}"
     )
 

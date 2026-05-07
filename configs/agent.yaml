@@ -5,3 +5,5 @@ backup_model: "gemini-2.5-flash-lite"
 reranker: "BAAI/bge-reranker-large"
 
 num_docs: 4
+
+relevance_threshold: 0.5
