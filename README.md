@@ -91,7 +91,7 @@ AgentEval-RAG/
 ├── configs/
 │   ├── chunking.yaml
 │   └── agent.yaml
-|
+├── requirements.txt
 └── README.md
 ```
 
