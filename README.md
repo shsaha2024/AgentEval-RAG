@@ -1,6 +1,6 @@
 # AgentEval-RAG
 
-AgentEval-RAG is an open-source, production-style **agentic RAG backend** for grounded question answering over technical documentation. It is designed to show how a retrieval system evolves into a modular AI engineering platform: reproducible corpus ingestion, pgvector-based semantic retrieval, FastAPI service endpoints, and a LangGraph workflow for query routing, retrieval, reranking, and answer generation.
+AgentEval-RAG is an open-source, production-style **agentic RAG backend** for grounded question answering over technical documentation. It is designed to show how a retrieval system evolves into a modular AI engineering platform: reproducible corpus ingestion, containerized pgvector-based semantic retrieval, FastAPI service endpoints, and a LangGraph workflow for query routing, retrieval, reranking, and answer generation.
 
 The current version already supports:
 - Open-source document download and preprocessing
@@ -21,7 +21,7 @@ This project is built as a serious backend foundation for:
 
 ## Why this project
 
-Many RAG demos jump directly to “chat with documents.” In practice, the hard part is building a system that is:
+RAG demos tend to jump into document-based-chatbots. In practice, the hard part is building a system that is:
 - reproducible
 - inspectable
 - testable
@@ -30,16 +30,11 @@ Many RAG demos jump directly to “chat with documents.” In practice, the hard
 
 AgentEval-RAG takes a software-engineering-first approach. Instead of treating retrieval as a hidden helper, it makes ingestion, indexing, retrieval, API contracts, and orchestration explicit and reusable.
 
-That makes the project useful both as:
-- a GitHub portfolio project for AI engineering / agentic AI roles
-- a backend foundation for future benchmark and product work
-
 ---
 
 ## Current status
 
 ### Implemented
-- Project scoping and retrieval-first architecture
 - Open-source documentation download scripts
 - Corpus construction and JSONL chunk generation
 - Metadata-aware chunking for technical documents
@@ -75,9 +70,9 @@ That makes the project useful both as:
 AgentEval-RAG/
 ├── apps/
 │   └── api/
-│       ├── main.py
-│       └── routes/
-│           └── query.py
+│   |    └──  main.py
+│   └── routes/
+│       └── query.py
 ├── packages/
 │   ├── agents/
 │   │   └── graph.py
@@ -96,9 +91,7 @@ AgentEval-RAG/
 ├── configs/
 │   ├── chunking.yaml
 │   └── agent.yaml
-├── data/
-│   ├── raw/
-│   └── processed/
+|
 └── README.md
 ```
 
@@ -106,7 +99,7 @@ AgentEval-RAG/
 
 ## Architecture
 
-The system has five layers.
+The system has five layers currently.
 
 ### 1. Data acquisition
 `scripts/download_docs.py` downloads public technical documentation pages and saves them as raw JSON records. The current corpus targets public documentation sources such as LangChain and FastAPI.
@@ -229,7 +222,7 @@ On Windows:
 
 ### 3. Install dependencies
 
-If you have a `requirements.txt`:
+A `requirements.txt` file is provided. This can be used for downloading all the necessary libraries.
 
 ```bash
 pip install -r requirements.txt
@@ -361,7 +354,7 @@ Example response shape:
 
 ### `POST /query` via LangGraph route
 
-The repository also includes a LangGraph-backed question-answering path in `apps/api/routes/query.py`, where the graph is invoked and returns:
+The repository also includes a LangGraph-backed question-answering path in `apps/routes/query.py`, where the graph is invoked and returns:
 - question
 - answer
 - citations
