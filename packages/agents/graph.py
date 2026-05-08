@@ -166,8 +166,9 @@ def generate_answer(question: str, docs: List[Dict[str, Any]]) -> str:
     for doc in docs:
         score = model.predict([(question, doc["text"])])[0]
         doc["score"] = score  # add score to doc for later use
+    docs = sorted(docs, key=lambda x: x["score"], reverse=False)  # sort in increasing order of relevance for better LLM processing
     joined_context = "Using Sources: \n\n".join(
-        f"[{i+1}, with {doc['sections']} as Section co-ordinate,] {doc['text']}\n\n" for i, doc in enumerate(docs) if doc.get("score", 0)>config.get("relevance_threshold", 0.5)
+        f"[{i+1}, with {doc['sections']} as Section co-ordinate,] {doc['text']}\n\n" for i, doc in enumerate(docs) 
     )
     try:
         response = client.models.generate_content(model=model, contents=joined_context+"Answer the question: \n\n"+question)
@@ -256,6 +257,8 @@ def generate_node(state: RAGState) -> Dict[str, Any]:
     """
     question = state.get("original_question","") or state["question"]
     docs = state.get("reranked_docs", []) or state.get("retrieved_docs", [])
+    if state["retrieval_mode"] == "hybrid" and not state.get("reranked_docs", []):
+        print("Warning: hybrid retrieval mode selected but no reranked docs available. Query might be unrelated. Falling back to retrieved docs without reranking.")
     answer = generate_answer(question, docs)
     citations = extract_citations(docs)
     print("Generated answer and extracted citations.")
