@@ -246,7 +246,7 @@ def rerank_node(state: RAGState) -> Dict[str, Any]: # takes addtional context, r
     reranked = simple_rerank(state["question"], docs)[-config.get("num_docs", 4):] # then cut back down to desired number of docs after reranking
     #Now docs are in increasing order of relevance for consistency
     print("Reranked documents.")
-    return {"reranked_docs": [doc for doc in reranked if doc.get("score", 0) > 0.5]}  # pass through the reranked docs to the next node
+    return {"reranked_docs": [doc for doc in reranked if doc.get("score", 0) > config.get("relevance_threshold", 0.5)]}  # pass through the reranked docs to the next node
 
 
 def generate_node(state: RAGState) -> Dict[str, Any]:
@@ -255,7 +255,7 @@ def generate_node(state: RAGState) -> Dict[str, Any]:
     If reranked docs exist, use them; otherwise use retrieved docs.
     """
     question = state.get("original_question","") or state["question"]
-    docs = state.get("reranked_docs") or state.get("retrieved_docs", [])
+    docs = state.get("reranked_docs", []) or state.get("retrieved_docs", [])
     answer = generate_answer(question, docs)
     citations = extract_citations(docs)
     print("Generated answer and extracted citations.")
