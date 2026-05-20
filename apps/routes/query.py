@@ -1,5 +1,3 @@
-# apps/api/routes/query.py
-
 from fastapi import APIRouter, FastAPI
 from pydantic import BaseModel
 from packages.agents.graph import build_rag_graph
